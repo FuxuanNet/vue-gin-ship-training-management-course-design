@@ -2,6 +2,7 @@ package database
 
 import (
 	"time"
+
 )
 
 // Person 人员表
@@ -21,7 +22,7 @@ type Account struct {
 	PersonID     int64  `gorm:"column:person_id;not null;index" json:"personId"`
 	LoginName    string `gorm:"column:login_name;size:20;not null;uniqueIndex" json:"loginName"`
 	PasswordHash string `gorm:"column:password_hash;size:255;not null" json:"-"`
-	Person       Person `gorm:"foreignKey:PersonID;references:PersonID"`
+	Person       Person `gorm:"foreignKey:PersonID;references:PersonID;constraint:OnDelete:CASCADE"`
 }
 
 func (Account) TableName() string {

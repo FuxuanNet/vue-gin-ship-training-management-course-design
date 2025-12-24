@@ -3,11 +3,10 @@ import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '../stores/user'
-import { useMockDataStore } from '../stores/mockData'
+import { login as apiLogin } from '../api/auth'
 
 const router = useRouter()
 const userStore = useUserStore()
-const mockDataStore = useMockDataStore()
 const loginFormRef = ref(null)
 const loading = ref(false)
 
@@ -29,40 +28,27 @@ const rules = {
 
 // 处理登录
 const handleLogin = () => {
-  loginFormRef.value.validate((valid) => {
+  loginFormRef.value.validate(async (valid) => {
     if (valid) {
       loading.value = true
       
-      // 模拟登录验证
-      const account = mockDataStore.accounts.find(
-        acc => acc.login_name === loginForm.username && acc.password_hash === loginForm.password
-      )
-      
-      if (account) {
-        const person = mockDataStore.persons.find(p => p.person_id === account.person_id)
-        
-        // 角色映射
-        const roleMap = {
-          '员工': 'employee',
-          '讲师': 'teacher',
-          '课程大纲制定者': 'planner'
-        }
-        
-        userStore.login({
-          token: 'mock-token-' + Date.now(),
-          user: {
-            id: person.person_id,
-            name: person.name,
-            role: roleMap[person.role]
-          }
+      try {
+        // 调用后端登录接口
+        const response = await apiLogin({
+          username: loginForm.username,
+          password: loginForm.password
         })
+        
+        // 保存登录信息到 store
+        userStore.login(response.data)
         
         ElMessage.success('登录成功')
         loading.value = false
         router.push('/')
-      } else {
-        ElMessage.error('用户名或密码错误')
+      } catch (error) {
+        console.error('登录失败:', error)
         loading.value = false
+        // 错误消息已在 axios 拦截器中处理
       }
     }
   })

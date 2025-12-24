@@ -1,25 +1,42 @@
 <script setup>
-import { computed } from 'vue'
-import { useMockDataStore } from '../../stores/mockData'
-import { useUserStore } from '../../stores/user'
+import { ref, computed, onMounted } from 'vue'
+import { getTodayCourses } from '../../api/employee'
+import { ElMessage, ElLoading } from 'element-plus'
 import CourseCard from '../../components/CourseCard.vue'
 
-const mockDataStore = useMockDataStore()
-const userStore = useUserStore()
+// 今日课程数据
+const todayCourses = ref([])
+const loading = ref(false)
 
-const todayCourses = computed(() => {
-  return mockDataStore.getTodayCoursesForEmployee(userStore.userInfo.id)
-})
-
+// 当前日期
 const currentDate = computed(() => {
   const date = new Date()
   const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
   return date.toLocaleDateString('zh-CN', options)
 })
+
+// 加载今日课程
+const loadTodayCourses = async () => {
+  loading.value = true
+  try {
+    const response = await getTodayCourses()
+    todayCourses.value = response.data.courses || []
+  } catch (error) {
+    console.error('加载今日课程失败:', error)
+    // 错误已在拦截器中处理
+  } finally {
+    loading.value = false
+  }
+}
+
+// 页面加载时获取数据
+onMounted(() => {
+  loadTodayCourses()
+})
 </script>
 
 <template>
-  <div class="page-container">
+  <div class="page-container" v-loading="loading">
     <div class="page-header">
       <h1>今日课程</h1>
       <p class="date-info">{{ currentDate }}</p>
@@ -31,7 +48,7 @@ const currentDate = computed(() => {
       </el-empty>
       
       <el-row :gutter="20" v-else>
-        <el-col :xs="24" :sm="12" :lg="8" v-for="course in todayCourses" :key="course.item_id">
+        <el-col :xs="24" :sm="12" :lg="8" v-for="course in todayCourses" :key="course.itemId">
           <CourseCard :course="course" />
         </el-col>
       </el-row>

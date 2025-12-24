@@ -2,6 +2,8 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from './stores/user'
+import { logout as apiLogout } from './api/auth'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
@@ -16,9 +18,21 @@ const activeIndex = computed(() => {
   return route.path
 })
 
-const logout = () => {
-  userStore.logout()
-  router.push('/login')
+// 退出登录
+const logout = async () => {
+  try {
+    // 调用后端退出接口
+    await apiLogout()
+    // 清除本地状态
+    userStore.logout()
+    ElMessage.success('退出成功')
+    router.push('/login')
+  } catch (error) {
+    console.error('退出失败:', error)
+    // 即使退出接口失败，也清除本地状态
+    userStore.logout()
+    router.push('/login')
+  }
 }
 
 // 根据用户角色获取所有菜单项

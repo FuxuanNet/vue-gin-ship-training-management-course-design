@@ -4,18 +4,25 @@ import (
 	"log"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
 )
 
-// SeedTestData 插入测试数据（可选）
-func SeedTestData() error {
-	log.Println("开始插入测试数据...")
+// SeedTestAccounts 仅插入测试账号数据（用于开发测试）
+func SeedTestAccounts() error {
+	log.Println("开始插入测试账号...")
 
-	// 检查是否已有数据
+	// 检查是否已有账号数据
 	var count int64
-	DB.Model(&Person{}).Count(&count)
+	DB.Model(&Account{}).Count(&count)
 	if count > 0 {
-		log.Println("数据已存在，跳过测试数据插入")
+		log.Println("账号数据已存在，跳过测试账号插入")
 		return nil
+	}
+
+	// 密码统一为 "123456"，需要进行 bcrypt 哈希
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte("123456"), bcrypt.DefaultCost)
+	if err != nil {
+		return err
 	}
 
 	// 插入人员数据
@@ -30,15 +37,42 @@ func SeedTestData() error {
 		return err
 	}
 
-	// 插入账号数据（明文密码，实际使用时需在登录时哈希验证）
+	// 插入账号数据（使用哈希后的密码）
 	accounts := []Account{
-		{PersonID: 1, LoginName: "admin", PasswordHash: "123456"},
-		{PersonID: 2, LoginName: "teacher1", PasswordHash: "123456"},
-		{PersonID: 3, LoginName: "teacher2", PasswordHash: "123456"},
-		{PersonID: 4, LoginName: "employee1", PasswordHash: "123456"},
-		{PersonID: 5, LoginName: "employee2", PasswordHash: "123456"},
+		{PersonID: 1, LoginName: "planner", PasswordHash: string(hashedPassword)},
+		{PersonID: 2, LoginName: "teacher", PasswordHash: string(hashedPassword)},
+		{PersonID: 3, LoginName: "teacher2", PasswordHash: string(hashedPassword)},
+		{PersonID: 4, LoginName: "employee", PasswordHash: string(hashedPassword)},
+		{PersonID: 5, LoginName: "employee2", PasswordHash: string(hashedPassword)},
 	}
 	if err := DB.Create(&accounts).Error; err != nil {
+		return err
+	}
+
+	log.Println("测试账号插入完成！")
+	log.Println("测试账号列表（密码均为 123456）：")
+	log.Println("  - planner (课程大纲制定者)")
+	log.Println("  - teacher (讲师)")
+	log.Println("  - teacher2 (讲师)")
+	log.Println("  - employee (员工)")
+	log.Println("  - employee2 (员工)")
+	return nil
+}
+
+// SeedTestData 插入完整测试数据（包含计划、课程等，可选）
+func SeedTestData() error {
+	log.Println("开始插入完整测试数据...")
+
+	// 检查是否已有数据
+	var count int64
+	DB.Model(&Person{}).Count(&count)
+	if count > 0 {
+		log.Println("数据已存在，跳过测试数据插入")
+		return nil
+	}
+
+	// 先插入测试账号
+	if err := SeedTestAccounts(); err != nil {
 		return err
 	}
 
@@ -116,6 +150,6 @@ func SeedTestData() error {
 		return err
 	}
 
-	log.Println("测试数据插入完成！")
+	log.Println("完整测试数据插入完成！")
 	return nil
 }

@@ -1,7 +1,9 @@
 <script setup>
 import { useRouter } from 'vue-router'
 import { useUserStore } from '../stores/user'
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
+import { getStatistics } from '../api/home'
+import { ElMessage } from 'element-plus'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -9,12 +11,37 @@ const userStore = useUserStore()
 const isLoggedIn = computed(() => userStore.isLoggedIn)
 const userRole = computed(() => userStore.userRole)
 
-const platformStats = [
-  { icon: 'Reading', label: '培训课程', value: '28+', color: '#409EFF' },
-  { icon: 'User', label: '讲师团队', value: '12+', color: '#67C23A' },
-  { icon: 'Notebook', label: '培训计划', value: '6+', color: '#E6A23C' },
-  { icon: 'TrendCharts', label: '平均满意度', value: '96%', color: '#F56C6C' }
-]
+// 平台统计数据（从后端获取）
+const platformStats = ref([
+  { icon: 'Reading', label: '培训课程', value: '0', color: '#409EFF' },
+  { icon: 'User', label: '讲师团队', value: '0', color: '#67C23A' },
+  { icon: 'Notebook', label: '培训计划', value: '0', color: '#E6A23C' },
+  { icon: 'TrendCharts', label: '平均满意度', value: '0%', color: '#F56C6C' }
+])
+
+// 加载统计数据
+const loadStatistics = async () => {
+  try {
+    const response = await getStatistics()
+    const data = response.data
+    
+    // 更新平台统计数据
+    platformStats.value = [
+      { icon: 'Reading', label: '培训课程', value: `${data.courseCount}+`, color: '#409EFF' },
+      { icon: 'User', label: '讲师团队', value: `${data.teacherCount}+`, color: '#67C23A' },
+      { icon: 'Notebook', label: '培训计划', value: `${data.planCount}+`, color: '#E6A23C' },
+      { icon: 'TrendCharts', label: '平均满意度', value: `${data.averageSatisfaction}%`, color: '#F56C6C' }
+    ]
+  } catch (error) {
+    console.error('加载统计数据失败:', error)
+    // 错误已在拦截器中处理，这里静默处理
+  }
+}
+
+// 页面加载时获取统计数据
+onMounted(() => {
+  loadStatistics()
+})
 
 const features = [
   {

@@ -30,9 +30,10 @@ func InitDB() error {
 	// 配置 GORM 日志
 	gormLogger := logger.Default.LogMode(logger.Info)
 
-	// 连接数据库
+	// 连接数据库（禁用外键约束自动创建）
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: gormLogger,
+		DisableForeignKeyConstraintWhenMigrating: true, // 禁用外键约束
 	})
 	if err != nil {
 		return fmt.Errorf("数据库连接失败: %v", err)
@@ -64,17 +65,24 @@ func InitDB() error {
 func AutoMigrate() error {
 	log.Println("开始自动迁移数据库表...")
 
-	err := DB.AutoMigrate(
-		&Person{},
-		&Account{},
-		&TrainingPlan{},
-		&Course{},
-		&PlanCourseItem{},
-		&AttendanceEvaluation{},
-		&PlanEmployee{},
-	)
-
-	if err != nil {
+	// 按照依赖顺序创建表，先创建基础表，再创建有外键的表
+	// 1. 基础表（无外键依赖）
+	if err := DB.AutoMigrate(&Person{}); err != nil {
+		return err
+	}
+	
+	// 2. 依赖 Person 的表
+	if err := DB.AutoMigrate(&Account{}, &TrainingPlan{}, &Course{}); err != nil {
+		return err
+	}
+	
+	// 3. 依赖多个表的表
+	if err := DB.AutoMigrate(&PlanCourseItem{}); err != nil {
+		return err
+	}
+	
+	// 4. 关联表
+	if err := DB.AutoMigrate(&AttendanceEvaluation{}, &PlanEmployee{}, &Session{}); err != nil {
 		return err
 	}
 

@@ -27,21 +27,21 @@ func main() {
 	}
 	defer database.CloseDB()
 
-	// 3.1 插入测试数据（可选，首次运行时会自动插入）
-	// if err := database.SeedTestData(); err != nil {
-	// 	log.Printf("测试数据插入失败: %v", err)
-	// }
+	// 3. 插入测试账号（首次运行时自动插入，已存在则跳过）
+	if err := database.SeedTestAccounts(); err != nil {
+		log.Printf("测试账号插入失败: %v", err)
+	}
 
-	// 3. 创建 Gin 引擎
+	// 4. 创建 Gin 引擎
 	r := gin.Default()
 
-	// 4. 应用全局中间件
+	// 5. 应用全局中间件
 	r.Use(middleware.CORS()) // CORS 跨域
 
-	// 5. 注册路由
+	// 6. 注册路由
 	setupRoutes(r)
 
-	// 6. 启动服务器
+	// 7. 启动服务器
 	port := ":" + config.AppConfig.ServerPort
 	log.Printf("服务器启动在端口 %s", port)
 	if err := r.Run(port); err != nil {
