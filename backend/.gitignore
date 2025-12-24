@@ -1,0 +1,15 @@
+# Binaries for programs and plugins
+*.exe
+
+# Go workspace file
+go.sum
+go.mod
+
+# Environment variables
+.env
+
+# IDE
+.vscode/
+
+# Logs
+*.log

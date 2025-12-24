@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  greatsql:
+    image: greatsql/greatsql:latest
+    container_name: training-greatsql
+    hostname: greatsql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: GreatSQL@2025
+      MYSQL_DATABASE: training_system
+      MYSQL_ALLOW_EMPTY_PASSWORD: 0
+    ports:
+      - "3306:3306"
+    volumes:
+      - greatsql-data:/data/GreatSQL
+    networks:
+      - training-network
+
+volumes:
+  greatsql-data:
+
+networks:
+  training-network:
+    driver: bridge

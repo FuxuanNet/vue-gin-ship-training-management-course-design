@@ -1,0 +1,213 @@
+package main
+
+import (
+	"log"
+	"backend/config"
+	"backend/database"
+	"backend/handlers/auth"
+	"backend/handlers/employee"
+	"backend/handlers/home"
+	"backend/handlers/planner"
+	"backend/handlers/teacher"
+	"backend/middleware"
+
+	"github.com/gin-gonic/gin"
+
+)
+
+func main() {
+	// 1. 加载配置
+	if err := config.LoadConfig(); err != nil {
+		log.Fatalf("配置加载失败: %v", err)
+	}
+
+	// 2. 初始化数据库
+	if err := database.InitDB(); err != nil {
+		log.Fatalf("数据库初始化失败: %v", err)
+	}
+	defer database.CloseDB()
+
+	// 3.1 插入测试数据（可选，首次运行时会自动插入）
+	// if err := database.SeedTestData(); err != nil {
+	// 	log.Printf("测试数据插入失败: %v", err)
+	// }
+
+	// 3. 创建 Gin 引擎
+	r := gin.Default()
+
+	// 4. 应用全局中间件
+	r.Use(middleware.CORS()) // CORS 跨域
+
+	// 5. 注册路由
+	setupRoutes(r)
+
+	// 6. 启动服务器
+	port := ":" + config.AppConfig.ServerPort
+	log.Printf("服务器启动在端口 %s", port)
+	if err := r.Run(port); err != nil {
+		log.Fatalf("服务器启动失败: %v", err)
+	}
+}
+
+// setupRoutes 设置所有路由
+func setupRoutes(r *gin.Engine) {
+	api := r.Group("/api")
+
+	// ==================== 认证相关接口 ====================
+	authGroup := api.Group("/auth")
+	{
+		// POST /api/auth/login - 用户登录
+		authGroup.POST("/login", auth.Login)
+
+		// POST /api/auth/register - 用户注册
+		authGroup.POST("/register", auth.Register)
+
+		// POST /api/auth/logout - 退出登录（需要鉴权）
+		authGroup.POST("/logout", middleware.AuthRequired(), auth.Logout)
+
+		// GET /api/auth/current-user - 获取当前用户信息（需要鉴权）
+		authGroup.GET("/current-user", middleware.AuthRequired(), auth.GetCurrentUser)
+	}
+
+	// ==================== 主页相关接口 ====================
+	homeGroup := api.Group("/home")
+	{
+		// GET /api/home/statistics - 获取平台统计数据（可选鉴权）
+		homeGroup.GET("/statistics", home.GetStatistics)
+	}
+
+	// ==================== 讲师端接口 ====================
+	teacherGroup := api.Group("/teacher")
+	teacherGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("讲师"))
+	{
+		// GET /api/teacher/today-courses - 获取讲师今日授课列表
+		teacherGroup.GET("/today-courses", teacher.GetTodayCourses)
+
+		// GET /api/teacher/schedule - 获取讲师授课表
+		teacherGroup.GET("/schedule", teacher.GetSchedule)
+
+		// GET /api/teacher/pending-evaluations - 获取待评分学员列表
+		teacherGroup.GET("/pending-evaluations", teacher.GetPendingEvaluations)
+
+		// POST /api/teacher/submit-evaluation - 提交学员评分
+		teacherGroup.POST("/submit-evaluation", teacher.SubmitEvaluation)
+
+		// POST /api/teacher/batch-evaluation - 批量提交评分
+		teacherGroup.POST("/batch-evaluation", teacher.BatchEvaluation)
+
+		// PUT /api/teacher/score-ratio - 设置评分占比
+		teacherGroup.PUT("/score-ratio", teacher.UpdateScoreRatio)
+
+		// GET /api/teacher/course-statistics - 获取课程成绩统计
+		teacherGroup.GET("/course-statistics", teacher.GetCourseStatistics)
+
+		// GET /api/teacher/teaching-statistics - 获取讲师授课统计
+		teacherGroup.GET("/teaching-statistics", teacher.GetTeachingStatistics)
+	}
+
+	// ==================== 员工端接口 ====================
+	employeeGroup := api.Group("/employee")
+	employeeGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("员工"))
+	{
+		// GET /api/employee/today-courses - 获取员工今日课程列表
+		employeeGroup.GET("/today-courses", employee.GetTodayCourses)
+
+		// GET /api/employee/schedule - 获取员工课程表
+		employeeGroup.GET("/schedule", employee.GetSchedule)
+
+		// GET /api/employee/pending-evaluations - 获取待自评课程列表
+		employeeGroup.GET("/pending-evaluations", employee.GetPendingEvaluations)
+
+		// POST /api/employee/submit-evaluation - 提交课程自评
+		employeeGroup.POST("/submit-evaluation", employee.SubmitEvaluation)
+
+		// GET /api/employee/scores - 获取员工成绩列表
+		employeeGroup.GET("/scores", employee.GetScores)
+
+		// GET /api/employee/course-type-scores - 获取课程类型成绩分析
+		employeeGroup.GET("/course-type-scores", employee.GetCourseTypeScores)
+
+		// GET /api/employee/learning-progress - 获取员工学习进度
+		employeeGroup.GET("/learning-progress", employee.GetLearningProgress)
+	}
+
+	// ==================== 课程大纲制定者端接口 ====================
+	plannerGroup := api.Group("/planner")
+	plannerGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("课程大纲制定者"))
+	{
+		// ===== 培训计划管理 =====
+		plans := plannerGroup.Group("/plans")
+		{
+			// GET /api/planner/plans - 获取培训计划列表
+			plans.GET("", planner.GetPlans)
+
+			// POST /api/planner/plans - 创建培训计划
+			plans.POST("", planner.CreatePlan)
+
+			// GET /api/planner/plans/:planId - 获取培训计划详情
+			plans.GET("/:planId", planner.GetPlanDetail)
+
+			// PUT /api/planner/plans/:planId - 修改培训计划
+			plans.PUT("/:planId", planner.UpdatePlan)
+
+			// DELETE /api/planner/plans/:planId - 删除培训计划
+			plans.DELETE("/:planId", planner.DeletePlan)
+
+			// POST /api/planner/plans/:planId/employees - 为培训计划添加员工
+			plans.POST("/:planId/employees", planner.AddEmployeesToPlan)
+
+			// DELETE /api/planner/plans/:planId/employees/:employeeId - 从培训计划移除员工
+			plans.DELETE("/:planId/employees/:employeeId", planner.RemoveEmployeeFromPlan)
+		}
+
+		// ===== 课程管理 =====
+		courses := plannerGroup.Group("/courses")
+		{
+			// GET /api/planner/courses - 获取课程列表
+			courses.GET("", planner.GetCourses)
+
+			// POST /api/planner/courses - 创建课程
+			courses.POST("", planner.CreateCourse)
+
+			// PUT /api/planner/courses/:courseId - 修改课程
+			courses.PUT("/:courseId", planner.UpdateCourse)
+
+			// DELETE /api/planner/courses/:courseId - 删除课程
+			courses.DELETE("/:courseId", planner.DeleteCourse)
+
+			// GET /api/planner/courses/:courseId/evaluations - 获取课程评价详情
+			courses.GET("/:courseId/evaluations", planner.GetCourseEvaluations)
+		}
+
+		// ===== 课程安排管理 =====
+		courseItems := plannerGroup.Group("/course-items")
+		{
+			// GET /api/planner/course-items - 获取课程安排列表
+			courseItems.GET("", planner.GetCourseItems)
+
+			// POST /api/planner/course-items - 创建课程安排
+			courseItems.POST("", planner.CreateCourseItem)
+
+			// PUT /api/planner/course-items/:itemId - 修改课程安排
+			courseItems.PUT("/:itemId", planner.UpdateCourseItem)
+
+			// DELETE /api/planner/course-items/:itemId - 删除课程安排
+			courseItems.DELETE("/:itemId", planner.DeleteCourseItem)
+		}
+
+		// ===== 数据分析 =====
+		// GET /api/planner/analytics - 获取平台数据分析
+		plannerGroup.GET("/analytics", planner.GetAnalytics)
+
+		// GET /api/planner/employees/:employeeId/scores - 获取员工成绩详情
+		plannerGroup.GET("/employees/:employeeId/scores", planner.GetEmployeeScores)
+	}
+
+	// 健康检查接口
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{
+			"status": "ok",
+			"message": "服务运行正常",
+		})
+	})
+}
