@@ -129,72 +129,20 @@ func setupRoutes(r *gin.Engine) {
 	plannerGroup := api.Group("/planner")
 	plannerGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("课程大纲制定者"))
 	{
-		// ===== 培训计划管理 =====
-		plans := plannerGroup.Group("/plans")
-		{
-			// GET /api/planner/plans - 获取培训计划列表
-			plans.GET("", planner.GetPlans)
+		// GET /api/planner/plans - 获取培训计划列表
+		plannerGroup.GET("/plans", planner.GetPlansList)
 
-			// POST /api/planner/plans - 创建培训计划
-			plans.POST("", planner.CreatePlan)
+		// POST /api/planner/plans - 创建培训计划
+		plannerGroup.POST("/plans", planner.CreatePlan)
 
-			// GET /api/planner/plans/:planId - 获取培训计划详情
-			plans.GET("/:planId", planner.GetPlanDetail)
+		// GET /api/planner/plans/:planId - 获取培训计划详情
+		plannerGroup.GET("/plans/:planId", planner.GetPlanDetail)
 
-			// PUT /api/planner/plans/:planId - 修改培训计划
-			plans.PUT("/:planId", planner.UpdatePlan)
+		// PUT /api/planner/plans/:planId - 修改培训计划
+		plannerGroup.PUT("/plans/:planId", planner.UpdatePlan)
 
-			// DELETE /api/planner/plans/:planId - 删除培训计划
-			plans.DELETE("/:planId", planner.DeletePlan)
-
-			// POST /api/planner/plans/:planId/employees - 为培训计划添加员工
-			plans.POST("/:planId/employees", planner.AddEmployeesToPlan)
-
-			// DELETE /api/planner/plans/:planId/employees/:employeeId - 从培训计划移除员工
-			plans.DELETE("/:planId/employees/:employeeId", planner.RemoveEmployeeFromPlan)
-		}
-
-		// ===== 课程管理 =====
-		courses := plannerGroup.Group("/courses")
-		{
-			// GET /api/planner/courses - 获取课程列表
-			courses.GET("", planner.GetCourses)
-
-			// POST /api/planner/courses - 创建课程
-			courses.POST("", planner.CreateCourse)
-
-			// PUT /api/planner/courses/:courseId - 修改课程
-			courses.PUT("/:courseId", planner.UpdateCourse)
-
-			// DELETE /api/planner/courses/:courseId - 删除课程
-			courses.DELETE("/:courseId", planner.DeleteCourse)
-
-			// GET /api/planner/courses/:courseId/evaluations - 获取课程评价详情
-			courses.GET("/:courseId/evaluations", planner.GetCourseEvaluations)
-		}
-
-		// ===== 课程安排管理 =====
-		courseItems := plannerGroup.Group("/course-items")
-		{
-			// GET /api/planner/course-items - 获取课程安排列表
-			courseItems.GET("", planner.GetCourseItems)
-
-			// POST /api/planner/course-items - 创建课程安排
-			courseItems.POST("", planner.CreateCourseItem)
-
-			// PUT /api/planner/course-items/:itemId - 修改课程安排
-			courseItems.PUT("/:itemId", planner.UpdateCourseItem)
-
-			// DELETE /api/planner/course-items/:itemId - 删除课程安排
-			courseItems.DELETE("/:itemId", planner.DeleteCourseItem)
-		}
-
-		// ===== 数据分析 =====
-		// GET /api/planner/analytics - 获取平台数据分析
-		plannerGroup.GET("/analytics", planner.GetAnalytics)
-
-		// GET /api/planner/employees/:employeeId/scores - 获取员工成绩详情
-		plannerGroup.GET("/employees/:employeeId/scores", planner.GetEmployeeScores)
+		// DELETE /api/planner/plans/:planId - 删除培训计划
+		plannerGroup.DELETE("/plans/:planId", planner.DeletePlan)
 	}
 
 	// 健康检查接口
