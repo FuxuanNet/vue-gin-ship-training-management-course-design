@@ -3,10 +3,10 @@ package teacher
 import (
 	"net/http"
 	"time"
-
 	"backend/database"
 
 	"github.com/gin-gonic/gin"
+
 )
 
 // GetTeachingStatistics 获取讲师授课统计
@@ -117,11 +117,13 @@ func GetTeachingStatistics(c *gin.Context) {
 	classCount := len(courseItems)
 	var totalHours float64
 	for _, item := range courseItems {
-		// 计算课时
-		beginTime := item.ClassBeginTime
-		endTime := item.ClassEndTime
-		duration := endTime.Sub(beginTime).Hours()
-		totalHours += duration
+		// 计算课时（解析字符串时间）
+		beginTime, err1 := time.Parse("15:04:05", item.ClassBeginTime)
+		endTime, err2 := time.Parse("15:04:05", item.ClassEndTime)
+		if err1 == nil && err2 == nil {
+			duration := endTime.Sub(beginTime).Hours()
+			totalHours += duration
+		}
 	}
 
 	// 获取所有课程安排的ID

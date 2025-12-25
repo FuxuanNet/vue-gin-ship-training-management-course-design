@@ -15,12 +15,6 @@ const router = createRouter({
     },
     // 员工端路由
     {
-      path: '/employee/today',
-      name: 'employee-today',
-      component: () => import('../views/employee/TodayCourses.vue'),
-      meta: { requiresAuth: true, role: 'employee' }
-    },
-    {
       path: '/employee/schedule',
       name: 'employee-schedule',
       component: () => import('../views/employee/Schedule.vue'),
@@ -39,12 +33,6 @@ const router = createRouter({
       meta: { requiresAuth: true, role: 'employee' }
     },
     // 讲师端路由
-    {
-      path: '/teacher/today',
-      name: 'teacher-today',
-      component: () => import('../views/teacher/TodayCourses.vue'),
-      meta: { requiresAuth: true, role: 'teacher' }
-    },
     {
       path: '/teacher/schedule',
       name: 'teacher-schedule',

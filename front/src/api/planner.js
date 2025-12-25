@@ -286,3 +286,14 @@ export function getCourseEvaluations(courseId) {
     method: 'get'
   })
 }
+
+/**
+ * 获取所有员工列表（用于选择）
+ * @returns {Promise} 员工列表数据
+ */
+export function getEmployeesList() {
+  return request({
+    url: '/planner/employees',
+    method: 'get'
+  })
+}

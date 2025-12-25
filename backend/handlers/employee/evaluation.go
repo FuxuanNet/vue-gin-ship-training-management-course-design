@@ -65,8 +65,8 @@ func GetPendingEvaluations(c *gin.Context) {
 			c.course_desc,
 			c.course_class,
 			pci.class_date,
-			pci.class_begin_time,
-			pci.class_end_time,
+			TIME_FORMAT(pci.class_begin_time, '%H:%i:%s') as class_begin_time,
+			TIME_FORMAT(pci.class_end_time, '%H:%i:%s') as class_end_time,
 			pci.location,
 			pci.plan_id,
 			tp.plan_name,
@@ -140,13 +140,24 @@ func SubmitEvaluation(c *gin.Context) {
 
 	// 检查课程是否已结束
 	now := time.Now()
+	// 解析时间字符串
+	classEndTime, err := time.Parse("15:04:05", item.ClassEndTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "时间格式错误",
+			"data":    nil,
+		})
+		return
+	}
+	
 	classDateTime := time.Date(
 		item.ClassDate.Year(),
 		item.ClassDate.Month(),
 		item.ClassDate.Day(),
-		item.ClassEndTime.Hour(),
-		item.ClassEndTime.Minute(),
-		item.ClassEndTime.Second(),
+		classEndTime.Hour(),
+		classEndTime.Minute(),
+		classEndTime.Second(),
 		0,
 		time.Local,
 	)
@@ -162,8 +173,7 @@ func SubmitEvaluation(c *gin.Context) {
 
 	// 检查是否已经自评过
 	var existingEval database.AttendanceEvaluation
-	err := database.DB.Where("item_id = ? AND person_id = ?", req.ItemID, userID).
-		First(&existingEval).Error
+	err = database.DB.Where("item_id = ? AND person_id = ?", req.ItemID, userID).First(&existingEval).Error
 	
 	if err == nil && existingEval.SelfComment != "" {
 		c.JSON(http.StatusBadRequest, gin.H{

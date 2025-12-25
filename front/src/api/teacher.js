@@ -2,17 +2,6 @@
 import request from './request'
 
 /**
- * 获取讲师今日授课列表
- * @returns {Promise} 今日授课数据
- */
-export function getTodayCourses() {
-  return request({
-    url: '/teacher/today-courses',
-    method: 'get'
-  })
-}
-
-/**
  * 获取讲师授课表
  * @param {Object} params - 查询参数
  * @param {string} params.startDate - 开始日期 (YYYY-MM-DD)

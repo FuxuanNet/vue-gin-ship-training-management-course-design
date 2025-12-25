@@ -13,6 +13,9 @@ type CourseItemDetail struct {
 	ItemID         int64  `json:"itemId"`
 	CourseID       int64  `json:"courseId"`
 	CourseName     string `json:"courseName"`
+	CourseClass    string `json:"courseClass"`
+	TeacherID      int64  `json:"teacherId"`
+	TeacherName    string `json:"teacherName"`
 	ClassDate      string `json:"classDate"`
 	ClassBeginTime string `json:"classBeginTime"`
 	ClassEndTime   string `json:"classEndTime"`
@@ -70,12 +73,16 @@ func GetPlanDetail(c *gin.Context) {
 			pci.item_id,
 			pci.course_id,
 			c.course_name,
+			c.course_class,
+			c.teacher_id,
+			p.name as teacher_name,
 			DATE_FORMAT(pci.class_date, '%Y-%m-%d') as class_date,
-			pci.class_begin_time,
-			pci.class_end_time,
+			TIME_FORMAT(pci.class_begin_time, '%H:%i:%s') as class_begin_time,
+			TIME_FORMAT(pci.class_end_time, '%H:%i:%s') as class_end_time,
 			pci.location
 		`).
 		Joins("JOIN course c ON pci.course_id = c.course_id").
+		Joins("JOIN person p ON c.teacher_id = p.person_id").
 		Where("pci.plan_id = ?", planID).
 		Order("pci.class_date ASC, pci.class_begin_time ASC").
 		Scan(&courseItems).Error

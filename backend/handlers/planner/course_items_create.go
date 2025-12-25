@@ -84,7 +84,7 @@ func CreateCourseItem(c *gin.Context) {
 		return
 	}
 
-	// 解析日期和时间
+	// 解析日期
 	classDate, err := time.Parse("2006-01-02", req.ClassDate)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -95,8 +95,8 @@ func CreateCourseItem(c *gin.Context) {
 		return
 	}
 
-	classBeginTime, err := time.Parse("15:04:05", req.ClassBeginTime)
-	if err != nil {
+	// 验证时间格式（HH:mm:ss）
+	if _, err := time.Parse("15:04:05", req.ClassBeginTime); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
 			"message": "开始时间格式错误，请使用 HH:mm:ss 格式",
@@ -105,8 +105,7 @@ func CreateCourseItem(c *gin.Context) {
 		return
 	}
 
-	classEndTime, err := time.Parse("15:04:05", req.ClassEndTime)
-	if err != nil {
+	if _, err := time.Parse("15:04:05", req.ClassEndTime); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    400,
 			"message": "结束时间格式错误，请使用 HH:mm:ss 格式",
@@ -120,8 +119,8 @@ func CreateCourseItem(c *gin.Context) {
 		PlanID:         req.PlanID,
 		CourseID:       req.CourseID,
 		ClassDate:      classDate,
-		ClassBeginTime: classBeginTime,
-		ClassEndTime:   classEndTime,
+		ClassBeginTime: req.ClassBeginTime,
+		ClassEndTime:   req.ClassEndTime,
 		Location:       req.Location,
 	}
 

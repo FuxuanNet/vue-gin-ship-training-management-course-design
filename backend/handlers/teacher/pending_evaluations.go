@@ -71,8 +71,8 @@ func GetPendingEvaluations(c *gin.Context) {
 			c.course_name,
 			c.course_class,
 			pci.class_date,
-			pci.class_begin_time,
-			pci.class_end_time,
+			TIME_FORMAT(pci.class_begin_time, '%H:%i:%s') as class_begin_time,
+			TIME_FORMAT(pci.class_end_time, '%H:%i:%s') as class_end_time,
 			pci.location,
 			tp.plan_name
 		`).

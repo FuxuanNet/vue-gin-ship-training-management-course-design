@@ -65,8 +65,8 @@ type PlanCourseItem struct {
 	PlanID         int64         `gorm:"column:plan_id;not null;index" json:"planId"`
 	CourseID       int64         `gorm:"column:course_id;not null;index" json:"courseId"`
 	ClassDate      time.Time     `gorm:"column:class_date;type:date;not null" json:"classDate"`
-	ClassBeginTime time.Time     `gorm:"column:class_begin_time;type:time;not null" json:"classBeginTime"`
-	ClassEndTime   time.Time     `gorm:"column:class_end_time;type:time;not null" json:"classEndTime"`
+	ClassBeginTime string        `gorm:"column:class_begin_time;type:varchar(8);not null" json:"classBeginTime"`
+	ClassEndTime   string        `gorm:"column:class_end_time;type:varchar(8);not null" json:"classEndTime"`
 	Location       string        `gorm:"column:location;size:100;not null" json:"location"`
 	Plan           TrainingPlan  `gorm:"foreignKey:PlanID;references:PlanID"`
 	Course         Course        `gorm:"foreignKey:CourseID;references:CourseID"`

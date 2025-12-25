@@ -46,8 +46,8 @@ func GetScores(c *gin.Context) {
 		Select(`
 			plan_course_item.item_id,
 			DATE_FORMAT(plan_course_item.class_date, '%Y-%m-%d') as class_date,
-			plan_course_item.class_begin_time,
-			plan_course_item.class_end_time,
+			TIME_FORMAT(plan_course_item.class_begin_time, '%H:%i:%s') as class_begin_time,
+			TIME_FORMAT(plan_course_item.class_end_time, '%H:%i:%s') as class_end_time,
 			plan_course_item.location,
 			training_plan.plan_id,
 			training_plan.plan_name,
@@ -94,16 +94,20 @@ func GetScores(c *gin.Context) {
 			"courseClass":    r.CourseClass,
 			"teacherName":    r.TeacherName,
 			"selfScore":      r.SelfScore,
-			"teacherScore":   r.TeacherScore, // 0 if not set
+			"teacherScore":   r.TeacherScore,
 			"scoreRatio":     r.ScoreRatio,
 			"selfComment":    r.SelfComment,
 			"teacherComment": r.TeacherComment,
-			"hasEvaluated":   true, // 既然在表中，肯定自评过（因为是先自评插入）
-			"hasTeacherScore": r.TeacherComment != "", // 简单判断
+			"hasEvaluated":   true,
 		}
 
+		// 计算综合得分（只有当讲师已评分时才计算）
 		var weightedScore float64
-		if r.TeacherComment != "" {
+		hasTeacherGraded := r.TeacherScore > 0 || r.TeacherComment != ""
+		item["hasTeacherScore"] = hasTeacherGraded
+		
+		if hasTeacherGraded {
+			// 按权重计算综合得分
 			weightedScore = r.SelfScore*(1-r.ScoreRatio) + r.TeacherScore*r.ScoreRatio
 			item["weightedScore"] = weightedScore
 			totalScore += weightedScore

@@ -120,8 +120,8 @@ func GetCourseItemsList(c *gin.Context) {
 			TeacherID:      item.Course.TeacherID,
 			TeacherName:    item.Course.Teacher.Name,
 			ClassDate:      item.ClassDate.Format("2006-01-02"),
-			ClassBeginTime: item.ClassBeginTime.Format("15:04:05"),
-			ClassEndTime:   item.ClassEndTime.Format("15:04:05"),
+			ClassBeginTime: item.ClassBeginTime,
+			ClassEndTime:   item.ClassEndTime,
 			Location:       item.Location,
 		})
 	}

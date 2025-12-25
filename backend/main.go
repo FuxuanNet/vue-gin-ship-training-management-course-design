@@ -80,8 +80,6 @@ func setupRoutes(r *gin.Engine) {
 	teacherGroup := api.Group("/teacher")
 	teacherGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("讲师"))
 	{
-		// GET /api/teacher/today-courses - 获取讲师今日授课列表
-		teacherGroup.GET("/today-courses", teacher.GetTodayCourses)
 
 		// GET /api/teacher/schedule - 获取讲师授课表
 		teacherGroup.GET("/schedule", teacher.GetSchedule)
@@ -103,9 +101,6 @@ func setupRoutes(r *gin.Engine) {
 	employeeGroup := api.Group("/employee")
 	employeeGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("员工"))
 	{
-		// GET /api/employee/today-courses - 获取员工今日课程列表
-		employeeGroup.GET("/today-courses", employee.GetTodayCourses)
-
 		// GET /api/employee/schedule - 获取员工课程表
 		employeeGroup.GET("/schedule", employee.GetSchedule)
 
@@ -131,6 +126,9 @@ func setupRoutes(r *gin.Engine) {
 	{
 		// GET /api/planner/teachers - 获取讲师列表（用于选择）
 		plannerGroup.GET("/teachers", planner.GetTeachersList)
+
+		// GET /api/planner/employees - 获取员工列表（用于选择）
+		plannerGroup.GET("/employees", planner.GetEmployeesList)
 
 		// GET /api/planner/plans - 获取培训计划列表
 		plannerGroup.GET("/plans", planner.GetPlansList)

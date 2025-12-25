@@ -68,8 +68,8 @@ func UpdateCourseItem(c *gin.Context) {
 	}
 
 	if req.ClassBeginTime != nil {
-		classBeginTime, err := time.Parse("15:04:05", *req.ClassBeginTime)
-		if err != nil {
+		// 验证时间格式
+		if _, err := time.Parse("15:04:05", *req.ClassBeginTime); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
 				"message": "开始时间格式错误，请使用 HH:mm:ss 格式",
@@ -77,12 +77,12 @@ func UpdateCourseItem(c *gin.Context) {
 			})
 			return
 		}
-		updates["class_begin_time"] = classBeginTime
+		updates["class_begin_time"] = *req.ClassBeginTime
 	}
 
 	if req.ClassEndTime != nil {
-		classEndTime, err := time.Parse("15:04:05", *req.ClassEndTime)
-		if err != nil {
+		// 验证时间格式
+		if _, err := time.Parse("15:04:05", *req.ClassEndTime); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"code":    400,
 				"message": "结束时间格式错误，请使用 HH:mm:ss 格式",
@@ -90,7 +90,7 @@ func UpdateCourseItem(c *gin.Context) {
 			})
 			return
 		}
-		updates["class_end_time"] = classEndTime
+		updates["class_end_time"] = *req.ClassEndTime
 	}
 
 	if req.Location != nil {
@@ -138,8 +138,8 @@ func UpdateCourseItem(c *gin.Context) {
 			"courseId":       item.CourseID,
 			"courseName":     item.Course.CourseName,
 			"classDate":      item.ClassDate.Format("2006-01-02"),
-			"classBeginTime": item.ClassBeginTime.Format("15:04:05"),
-			"classEndTime":   item.ClassEndTime.Format("15:04:05"),
+			"classBeginTime": item.ClassBeginTime,
+			"classEndTime":   item.ClassEndTime,
 			"location":       item.Location,
 		},
 	})

@@ -41,13 +41,11 @@ const allMenuItems = computed(() => {
   
   const roleMenus = {
     employee: [
-      { index: '/employee/today', label: '今日课程', path: '/employee/today', icon: 'Calendar' },
       { index: '/employee/schedule', label: '课程表', path: '/employee/schedule', icon: 'Grid' },
       { index: '/employee/evaluation', label: '课程自评', path: '/employee/evaluation', icon: 'EditPen' },
       { index: '/employee/scores', label: '我的成绩', path: '/employee/scores', icon: 'TrophyBase' }
     ],
     teacher: [
-      { index: '/teacher/today', label: '今日授课', path: '/teacher/today', icon: 'Calendar' },
       { index: '/teacher/schedule', label: '授课表', path: '/teacher/schedule', icon: 'Grid' },
       { index: '/teacher/grading', label: '学员评分', path: '/teacher/grading', icon: 'Edit' },
       { index: '/teacher/scores', label: '成绩查看', path: '/teacher/scores', icon: 'DataLine' }

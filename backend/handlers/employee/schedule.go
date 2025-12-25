@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 )
 
 // GetSchedule 获取员工课程表
@@ -106,8 +107,8 @@ func GetSchedule(c *gin.Context) {
 			"courseName":     item.Course.CourseName,
 			"courseDesc":     item.Course.CourseDesc,
 			"courseClass":    item.Course.CourseClass,
-			"classBeginTime": item.ClassBeginTime.Format("15:04:05"),
-			"classEndTime":   item.ClassEndTime.Format("15:04:05"),
+			"classBeginTime": item.ClassBeginTime,
+			"classEndTime":   item.ClassEndTime,
 			"location":       item.Location,
 			"planId":         item.PlanID,
 			"planName":       item.Plan.PlanName,
