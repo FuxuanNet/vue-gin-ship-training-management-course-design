@@ -129,6 +129,9 @@ func setupRoutes(r *gin.Engine) {
 	plannerGroup := api.Group("/planner")
 	plannerGroup.Use(middleware.AuthRequired(), middleware.RoleRequired("课程大纲制定者"))
 	{
+		// GET /api/planner/teachers - 获取讲师列表（用于选择）
+		plannerGroup.GET("/teachers", planner.GetTeachersList)
+
 		// GET /api/planner/plans - 获取培训计划列表
 		plannerGroup.GET("/plans", planner.GetPlansList)
 
@@ -143,6 +146,24 @@ func setupRoutes(r *gin.Engine) {
 
 		// DELETE /api/planner/plans/:planId - 删除培训计划
 		plannerGroup.DELETE("/plans/:planId", planner.DeletePlan)
+
+		// POST /api/planner/plans/:planId/employees - 为培训计划添加员工
+		plannerGroup.POST("/plans/:planId/employees", planner.AddEmployeesToPlan)
+
+		// DELETE /api/planner/plans/:planId/employees/:employeeId - 从培训计划移除员工
+		plannerGroup.DELETE("/plans/:planId/employees/:employeeId", planner.RemoveEmployeeFromPlan)
+
+		// GET /api/planner/courses - 获取课程列表
+		plannerGroup.GET("/courses", planner.GetCoursesList)
+
+		// POST /api/planner/courses - 创建课程
+		plannerGroup.POST("/courses", planner.CreateCourse)
+
+		// PUT /api/planner/courses/:courseId - 修改课程
+		plannerGroup.PUT("/courses/:courseId", planner.UpdateCourse)
+
+		// DELETE /api/planner/courses/:courseId - 删除课程
+		plannerGroup.DELETE("/courses/:courseId", planner.DeleteCourse)
 	}
 
 	// 健康检查接口

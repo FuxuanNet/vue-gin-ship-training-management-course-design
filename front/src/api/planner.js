@@ -80,3 +80,100 @@ export function deletePlan(planId) {
     method: 'delete'
   })
 }
+
+/**
+ * 为培训计划添加员工
+ * @param {number} planId - 培训计划ID
+ * @param {Object} data - 员工数据
+ * @param {Array<number>} data.employeeIds - 员工ID数组
+ * @returns {Promise} 添加结果
+ */
+export function addEmployeesToPlan(planId, data) {
+  return request({
+    url: `/planner/plans/${planId}/employees`,
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 从培训计划移除员工
+ * @param {number} planId - 培训计划ID
+ * @param {number} employeeId - 员工ID
+ * @param {boolean} force - 是否强制删除
+ * @returns {Promise} 移除结果
+ */
+export function removeEmployeeFromPlan(planId, employeeId, force = false) {
+  return request({
+    url: `/planner/plans/${planId}/employees/${employeeId}`,
+    method: 'delete',
+    params: { force }
+  })
+}
+
+/**
+ * 获取课程列表
+ * @param {Object} params - 查询参数
+ * @param {number} params.page - 页码，默认1
+ * @param {number} params.pageSize - 每页数量，默认10
+ * @param {string} params.courseClass - 课程类型筛选
+ * @param {string} params.keyword - 课程名称关键词搜索
+ * @param {number} params.teacherId - 按讲师筛选
+ * @returns {Promise} 课程列表数据
+ */
+export function getCoursesList(params) {
+  return request({
+    url: '/planner/courses',
+    method: 'get',
+    params
+  })
+}
+
+/**
+ * 创建课程
+ * @param {Object} data - 课程数据
+ * @param {string} data.courseName - 课程名称
+ * @param {string} data.courseDesc - 课程描述（可选）
+ * @param {string} data.courseRequire - 课程要求（可选）
+ * @param {string} data.courseClass - 课程类型
+ * @param {number} data.teacherId - 讲师ID
+ * @returns {Promise} 创建结果
+ */
+export function createCourse(data) {
+  return request({
+    url: '/planner/courses',
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 修改课程
+ * @param {number} courseId - 课程ID
+ * @param {Object} data - 要修改的数据
+ * @param {string} data.courseName - 课程名称（可选）
+ * @param {string} data.courseDesc - 课程描述（可选）
+ * @param {string} data.courseRequire - 课程要求（可选）
+ * @param {string} data.courseClass - 课程类型（可选）
+ * @param {number} data.teacherId - 讲师ID（可选）
+ * @returns {Promise} 修改结果
+ */
+export function updateCourse(courseId, data) {
+  return request({
+    url: `/planner/courses/${courseId}`,
+    method: 'put',
+    data
+  })
+}
+
+/**
+ * 删除课程
+ * @param {number} courseId - 课程ID
+ * @returns {Promise} 删除结果
+ */
+export function deleteCourse(courseId) {
+  return request({
+    url: `/planner/courses/${courseId}`,
+    method: 'delete'
+  })
+}

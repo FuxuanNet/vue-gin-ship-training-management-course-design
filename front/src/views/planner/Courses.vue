@@ -1,44 +1,81 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { useMockDataStore } from '../../stores/mockData'
+import { getCoursesList, createCourse, updateCourse, deleteCourse } from '../../api/planner'
+import axios from 'axios'
 
-const mockDataStore = useMockDataStore()
+const loading = ref(false)
 const activeTab = ref('courses')
 const dialogVisible = ref(false)
 const dialogMode = ref('add')
 
+// 课程列表数据
+const coursesList = ref([])
+const total = ref(0)
+const currentPage = ref(1)
+const pageSize = ref(10)
+
+// 讲师列表
+const teachers = ref([])
+
 // 课程表单
 const courseForm = ref({
-  course_name: '',
-  course_desc: '',
-  course_require: '',
-  course_class: '',
-  teacher_id: null
-})
-
-// 课程安排表单
-const itemForm = ref({
-  plan_id: null,
-  course_id: null,
-  class_date: '',
-  class_begin_time: '',
-  class_end_time: '',
-  location: ''
+  courseName: '',
+  courseDesc: '',
+  courseRequire: '',
+  courseClass: '',
+  teacherId: null
 })
 
 // 获取讲师列表
-const teachers = mockDataStore.persons.filter(p => p.role === '讲师')
+const fetchTeachersList = async () => {
+  try {
+    const sessionId = localStorage.getItem('sessionId')
+    const response = await axios.get('http://localhost:8080/api/planner/teachers', {
+      headers: { 'Session-ID': sessionId }
+    })
+    if (response.data.code === 200) {
+      teachers.value = response.data.data.list || []
+    }
+  } catch (error) {
+    console.error('获取讲师列表失败：', error)
+  }
+}
+
+// 获取课程列表
+const fetchCoursesList = async () => {
+  loading.value = true
+  try {
+    const response = await getCoursesList({
+      page: currentPage.value,
+      pageSize: pageSize.value
+    })
+    if (response.code === 200) {
+      coursesList.value = response.data.list
+      total.value = response.data.total
+    }
+  } catch (error) {
+    ElMessage.error('获取课程列表失败：' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+// 分页变化
+const handlePageChange = (page) => {
+  currentPage.value = page
+  fetchCoursesList()
+}
 
 // 打开新增课程对话框
 const openAddCourseDialog = () => {
   dialogMode.value = 'add-course'
   courseForm.value = {
-    course_name: '',
-    course_desc: '',
-    course_require: '',
-    course_class: '',
-    teacher_id: null
+    courseName: '',
+    courseDesc: '',
+    courseRequire: '',
+    courseClass: '',
+    teacherId: null
   }
   dialogVisible.value = true
 }
@@ -46,94 +83,88 @@ const openAddCourseDialog = () => {
 // 打开编辑课程对话框
 const openEditCourseDialog = (course) => {
   dialogMode.value = 'edit-course'
-  courseForm.value = { ...course }
-  dialogVisible.value = true
-}
-
-// 打开新增课程安排对话框
-const openAddItemDialog = () => {
-  dialogMode.value = 'add-item'
-  itemForm.value = {
-    plan_id: null,
-    course_id: null,
-    class_date: '',
-    class_begin_time: '',
-    class_end_time: '',
-    location: ''
+  courseForm.value = {
+    courseId: course.courseId,
+    courseName: course.courseName,
+    courseDesc: course.courseDesc,
+    courseRequire: course.courseRequire,
+    courseClass: course.courseClass,
+    teacherId: course.teacherId
   }
   dialogVisible.value = true
 }
 
 // 提交表单
-const submitForm = () => {
-  if (dialogMode.value.includes('course')) {
-    if (!courseForm.value.course_name) {
-      ElMessage.warning('请输入课程名称')
-      return
-    }
-    ElMessage.success(dialogMode.value === 'add-course' ? '课程创建成功' : '课程更新成功')
-    console.log('提交课程:', courseForm.value)
-  } else {
-    if (!itemForm.value.plan_id || !itemForm.value.course_id) {
-      ElMessage.warning('请完整填写表单')
-      return
-    }
-    ElMessage.success('课程安排添加成功')
-    console.log('提交课程安排:', itemForm.value)
+const submitForm = async () => {
+  if (!courseForm.value.courseName) {
+    ElMessage.warning('请输入课程名称')
+    return
   }
-  
-  dialogVisible.value = false
+  if (!courseForm.value.courseClass) {
+    ElMessage.warning('请输入课程类型')
+    return
+  }
+  if (!courseForm.value.teacherId) {
+    ElMessage.warning('请选择讲师')
+    return
+  }
+
+  loading.value = true
+  try {
+    if (dialogMode.value === 'add-course') {
+      // 确保 teacherId 是数字类型
+      const courseData = {
+        ...courseForm.value,
+        teacherId: Number(courseForm.value.teacherId)
+      }
+      await createCourse(courseData)
+      ElMessage.success('创建课程成功')
+    } else {
+      const courseId = courseForm.value.courseId
+      const updateData = {
+        courseName: courseForm.value.courseName,
+        courseDesc: courseForm.value.courseDesc,
+        courseRequire: courseForm.value.courseRequire,
+        courseClass: courseForm.value.courseClass,
+        teacherId: Number(courseForm.value.teacherId)
+      }
+      await updateCourse(courseId, updateData)
+      ElMessage.success('修改课程成功')
+    }
+    dialogVisible.value = false
+    fetchCoursesList()
+  } catch (error) {
+    ElMessage.error(error.message || '操作失败')
+  } finally {
+    loading.value = false
+  }
 }
 
 // 删除课程
-const deleteCourse = (course) => {
+const deleteCourseHandler = (course) => {
   ElMessageBox.confirm(
-    `确定要删除课程"${course.course_name}"吗？`,
+    `确定要删除课程"${course.courseName}"吗？`,
     '提示',
     {
       confirmButtonText: '确定',
       cancelButtonText: '取消',
       type: 'warning'
     }
-  ).then(() => {
-    ElMessage.success('删除成功')
-    console.log('删除课程:', course.course_id)
-  }).catch(() => {})
-}
-
-// 删除课程安排
-const deleteItem = (item) => {
-  ElMessageBox.confirm(
-    '确定要删除这个课程安排吗？',
-    '提示',
-    {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
+  ).then(async () => {
+    try {
+      await deleteCourse(course.courseId)
+      ElMessage.success('删除成功')
+      fetchCoursesList()
+    } catch (error) {
+      ElMessage.error(error.message || '删除失败')
     }
-  ).then(() => {
-    ElMessage.success('删除成功')
-    console.log('删除课程安排:', item.item_id)
   }).catch(() => {})
 }
 
-// 获取课程名称
-const getCourseName = (courseId) => {
-  const course = mockDataStore.courses.find(c => c.course_id === courseId)
-  return course?.course_name || '-'
-}
-
-// 获取计划名称
-const getPlanName = (planId) => {
-  const plan = mockDataStore.trainingPlans.find(p => p.plan_id === planId)
-  return plan?.plan_name || '-'
-}
-
-// 获取讲师名称
-const getTeacherName = (teacherId) => {
-  const teacher = mockDataStore.persons.find(p => p.person_id === teacherId)
-  return teacher?.name || '-'
-}
+onMounted(() => {
+  fetchTeachersList()
+  fetchCoursesList()
+})
 </script>
 
 <template>
@@ -142,170 +173,81 @@ const getTeacherName = (teacherId) => {
       <h1>课程管理</h1>
     </div>
     
-    <div class="content-wrapper">
-      <el-tabs v-model="activeTab">
-        <el-tab-pane label="课程列表" name="courses">
-          <div class="tab-header">
-            <el-button type="primary" @click="openAddCourseDialog">
-              <el-icon><Plus /></el-icon>
-              新建课程
-            </el-button>
-          </div>
-          
-          <el-table :data="mockDataStore.courses" border>
-            <el-table-column prop="course_id" label="课程ID" width="80" />
-            <el-table-column prop="course_name" label="课程名称" min-width="150" />
-            <el-table-column prop="course_desc" label="课程描述" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="course_class" label="课程类型" width="120">
-              <template #default="{ row }">
-                <el-tag size="small">{{ row.course_class }}</el-tag>
-              </template>
-            </el-table-column>
-            <el-table-column label="主讲讲师" width="120">
-              <template #default="{ row }">
-                {{ getTeacherName(row.teacher_id) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="操作" width="180" align="center">
-              <template #default="{ row }">
-                <el-button size="small" type="primary" @click="openEditCourseDialog(row)">编辑</el-button>
-                <el-button size="small" type="danger" @click="deleteCourse(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-        
-        <el-tab-pane label="课程安排" name="items">
-          <div class="tab-header">
-            <el-button type="primary" @click="openAddItemDialog">
-              <el-icon><Plus /></el-icon>
-              添加课程安排
-            </el-button>
-          </div>
-          
-          <el-table :data="mockDataStore.courseItems" border>
-            <el-table-column prop="item_id" label="安排ID" width="80" />
-            <el-table-column label="培训计划" width="180">
-              <template #default="{ row }">
-                {{ getPlanName(row.plan_id) }}
-              </template>
-            </el-table-column>
-            <el-table-column label="课程名称" min-width="150">
-              <template #default="{ row }">
-                {{ getCourseName(row.course_id) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="class_date" label="上课日期" width="120" />
-            <el-table-column label="上课时间" width="150">
-              <template #default="{ row }">
-                {{ row.class_begin_time.slice(0, 5) }} - {{ row.class_end_time.slice(0, 5) }}
-              </template>
-            </el-table-column>
-            <el-table-column prop="location" label="上课地点" width="150" />
-            <el-table-column label="操作" width="120" align="center">
-              <template #default="{ row }">
-                <el-button size="small" type="danger" @click="deleteItem(row)">删除</el-button>
-              </template>
-            </el-table-column>
-          </el-table>
-        </el-tab-pane>
-      </el-tabs>
+    <div class="content-wrapper" v-loading="loading">
+      <div class="tab-header">
+        <el-button type="primary" @click="openAddCourseDialog">
+          新建课程
+        </el-button>
+      </div>
+      
+      <el-table :data="coursesList" border>
+        <el-table-column prop="courseId" label="课程ID" width="80" />
+        <el-table-column prop="courseName" label="课程名称" min-width="150" />
+        <el-table-column prop="courseDesc" label="课程描述" min-width="200" show-overflow-tooltip />
+        <el-table-column prop="courseClass" label="课程类型" width="120">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.courseClass }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="teacherName" label="主讲讲师" width="120" />
+        <el-table-column prop="scheduledCount" label="安排次数" width="100" />
+        <el-table-column label="操作" width="180" align="center">
+          <template #default="{ row }">
+            <el-button size="small" type="primary" @click="openEditCourseDialog(row)">编辑</el-button>
+            <el-button size="small" type="danger" @click="deleteCourseHandler(row)">删除</el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+      
+      <el-pagination
+        v-if="total > 0"
+        v-model:current-page="currentPage"
+        :page-size="pageSize"
+        :total="total"
+        layout="total, prev, pager, next"
+        @current-change="handlePageChange"
+        style="margin-top: 20px; justify-content: center;"
+      />
     </div>
     
     <!-- 课程对话框 -->
     <el-dialog 
       v-model="dialogVisible" 
-      :title="dialogMode === 'add-course' ? '新建课程' : dialogMode === 'edit-course' ? '编辑课程' : '添加课程安排'"
+      :title="dialogMode === 'add-course' ? '新建课程' : '编辑课程'"
       width="600px"
     >
-      <el-form v-if="dialogMode.includes('course')" :model="courseForm" label-width="100px">
+      <el-form :model="courseForm" label-width="100px">
         <el-form-item label="课程名称" required>
-          <el-input v-model="courseForm.course_name" placeholder="请输入课程名称" />
+          <el-input v-model="courseForm.courseName" placeholder="请输入课程名称" />
         </el-form-item>
         
         <el-form-item label="课程描述">
-          <el-input v-model="courseForm.course_desc" type="textarea" :rows="3" placeholder="请输入课程描述" />
+          <el-input v-model="courseForm.courseDesc" type="textarea" :rows="3" placeholder="请输入课程描述" />
         </el-form-item>
         
         <el-form-item label="课程要求">
-          <el-input v-model="courseForm.course_require" type="textarea" :rows="2" placeholder="请输入课程要求" />
+          <el-input v-model="courseForm.courseRequire" type="textarea" :rows="2" placeholder="请输入课程要求" />
         </el-form-item>
         
         <el-form-item label="课程类型" required>
-          <el-input v-model="courseForm.course_class" placeholder="如：船舶结构、动力系统等" />
+          <el-input v-model="courseForm.courseClass" placeholder="如：船舶结构、动力系统等" />
         </el-form-item>
         
         <el-form-item label="主讲讲师" required>
-          <el-select v-model="courseForm.teacher_id" placeholder="请选择讲师" style="width: 100%;">
-            <el-option 
-              v-for="teacher in teachers" 
-              :key="teacher.person_id"
+          <el-select v-model="courseForm.teacherId" placeholder="请选择讲师" style="width: 100%;">
+            <el-option
+              v-for="teacher in teachers"
+              :key="teacher.personId"
               :label="teacher.name"
-              :value="teacher.person_id"
+              :value="teacher.personId"
             />
           </el-select>
-        </el-form-item>
-      </el-form>
-      
-      <el-form v-else :model="itemForm" label-width="100px">
-        <el-form-item label="培训计划" required>
-          <el-select v-model="itemForm.plan_id" placeholder="请选择培训计划" style="width: 100%;">
-            <el-option 
-              v-for="plan in mockDataStore.trainingPlans" 
-              :key="plan.plan_id"
-              :label="plan.plan_name"
-              :value="plan.plan_id"
-            />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="课程" required>
-          <el-select v-model="itemForm.course_id" placeholder="请选择课程" style="width: 100%;">
-            <el-option 
-              v-for="course in mockDataStore.courses" 
-              :key="course.course_id"
-              :label="course.course_name"
-              :value="course.course_id"
-            />
-          </el-select>
-        </el-form-item>
-        
-        <el-form-item label="上课日期" required>
-          <el-date-picker
-            v-model="itemForm.class_date"
-            type="date"
-            placeholder="选择上课日期"
-            value-format="YYYY-MM-DD"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        
-        <el-form-item label="开始时间" required>
-          <el-time-picker
-            v-model="itemForm.class_begin_time"
-            placeholder="选择开始时间"
-            value-format="HH:mm:ss"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        
-        <el-form-item label="结束时间" required>
-          <el-time-picker
-            v-model="itemForm.class_end_time"
-            placeholder="选择结束时间"
-            value-format="HH:mm:ss"
-            style="width: 100%;"
-          />
-        </el-form-item>
-        
-        <el-form-item label="上课地点" required>
-          <el-input v-model="itemForm.location" placeholder="请输入上课地点" />
         </el-form-item>
       </el-form>
       
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitForm">确定</el-button>
+        <el-button type="primary" @click="submitForm" :loading="loading">确定</el-button>
       </template>
     </el-dialog>
   </div>
