@@ -1,31 +1,57 @@
 package employee
 
 import (
-	"backend/database"
 	"net/http"
 	"time"
+
+	"backend/database"
 
 	"github.com/gin-gonic/gin"
 )
 
+// TodayCourseResponse 今日课程响应结构
+type TodayCourseResponse struct {
+	ItemID          int       `json:"itemId"`
+	CourseID        int       `json:"courseId"`
+	CourseName      string    `json:"courseName"`
+	CourseDesc      string    `json:"courseDesc"`
+	CourseRequire   string    `json:"courseRequire"`
+	CourseClass     string    `json:"courseClass"`
+	ClassDate       string    `json:"classDate"`
+	ClassBeginTime  string    `json:"classBeginTime"`
+	ClassEndTime    string    `json:"classEndTime"`
+	Location        string    `json:"location"`
+	PlanID          int       `json:"planId"`
+	PlanName        string    `json:"planName"`
+	TeacherID       int       `json:"teacherId"`
+	TeacherName     string    `json:"teacherName"`
+	HasEvaluated    bool      `json:"hasEvaluated"`
+	Status          string    `json:"status"`
+}
+
 // GetTodayCourses 获取员工今日课程列表
 func GetTodayCourses(c *gin.Context) {
-	// 从中间件获取用户ID
-	personID, exists := c.Get("person_id")
+	// 获取当前用户信息
+	personID, exists := c.Get("personId")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登录", "data": nil})
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"code":    401,
+			"message": "未登录",
+			"data":    nil,
+		})
 		return
 	}
+	
+	userID := personID.(int64)
 
 	// 获取今天的日期
 	today := time.Now().Format("2006-01-02")
 
+	var courses []TodayCourseResponse
+
 	// 查询今日课程
-	var courses []map[string]interface{}
-	
-	// SQL查询：通过plan_employee关联查找该员工今日的课程
-	rows, err := database.DB.Raw(`
-		SELECT 
+	err := database.DB.Table("plan_course_item pci").
+		Select(`
 			pci.item_id,
 			pci.course_id,
 			c.course_name,
@@ -39,82 +65,54 @@ func GetTodayCourses(c *gin.Context) {
 			pci.plan_id,
 			tp.plan_name,
 			c.teacher_id,
-			p.name AS teacher_name,
-			CASE 
-				WHEN ae.person_id IS NOT NULL THEN true 
-				ELSE false 
-			END AS has_evaluated,
-			CASE 
-				WHEN pci.class_date < CURDATE() THEN '已完成'
-				WHEN pci.class_date = CURDATE() THEN '待上课'
-				ELSE '待上课'
-			END AS status
-		FROM plan_employee pe
-		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
-		JOIN course c ON pci.course_id = c.course_id
-		JOIN training_plan tp ON pci.plan_id = tp.plan_id
-		JOIN person p ON c.teacher_id = p.person_id
-		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
-		WHERE pe.person_id = ? AND DATE(pci.class_date) = ?
-		ORDER BY pci.class_begin_time ASC
-	`, personID, personID, today).Rows()
+			p.name as teacher_name
+		`).
+		Joins("JOIN course c ON pci.course_id = c.course_id").
+		Joins("JOIN training_plan tp ON pci.plan_id = tp.plan_id").
+		Joins("JOIN person p ON c.teacher_id = p.person_id").
+		Joins("JOIN plan_employee pe ON tp.plan_id = pe.plan_id").
+		Where("pe.person_id = ? AND pci.class_date = ?", userID, today).
+		Order("pci.class_begin_time ASC").
+		Scan(&courses).Error
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"code":    500,
+			"message": "查询课程失败",
+			"data":    nil,
+		})
 		return
 	}
-	defer rows.Close()
 
-	// 解析结果
-	for rows.Next() {
-		var (
-			itemID          int64
-			courseID        int64
-			courseName      string
-			courseDesc      string
-			courseRequire   string
-			courseClass     string
-			classDate       string
-			classBeginTime  string
-			classEndTime    string
-			location        string
-			planID          int64
-			planName        string
-			teacherID       int64
-			teacherName     string
-			hasEvaluated    bool
-			status          string
-		)
+	// 检查每个课程是否已自评
+	for i := range courses {
+		var evalCount int64
+		database.DB.Model(&database.AttendanceEvaluation{}).
+			Where("item_id = ? AND person_id = ? AND self_comment IS NOT NULL AND self_comment != ''", 
+				courses[i].ItemID, userID).
+			Count(&evalCount)
+		
+		courses[i].HasEvaluated = evalCount > 0
 
-		rows.Scan(
-			&itemID, &courseID, &courseName, &courseDesc, &courseRequire,
-			&courseClass, &classDate, &classBeginTime, &classEndTime,
-			&location, &planID, &planName, &teacherID, &teacherName,
-			&hasEvaluated, &status,
-		)
-
-		course := map[string]interface{}{
-			"itemId":         itemID,
-			"courseId":       courseID,
-			"courseName":     courseName,
-			"courseDesc":     courseDesc,
-			"courseRequire":  courseRequire,
-			"courseClass":    courseClass,
-			"classDate":      classDate,
-			"classBeginTime": classBeginTime,
-			"classEndTime":   classEndTime,
-			"location":       location,
-			"planId":         planID,
-			"planName":       planName,
-			"teacherId":      teacherID,
-			"teacherName":    teacherName,
-			"hasEvaluated":   hasEvaluated,
-			"status":         status,
+		// 判断课程状态
+		now := time.Now()
+		classDateStr := courses[i].ClassDate
+		classEndTimeStr := courses[i].ClassEndTime
+		classDateTime, err := time.Parse("2006-01-02 15:04:05", 
+			classDateStr+" "+classEndTimeStr)
+		if err != nil {
+			// 如果解析失败，默认为待上课
+			courses[i].Status = "待上课"
+			continue
 		}
-		courses = append(courses, course)
+		
+		if now.After(classDateTime) {
+			courses[i].Status = "已完成"
+		} else {
+			courses[i].Status = "待上课"
+		}
 	}
 
-	// 返回结果
 	c.JSON(http.StatusOK, gin.H{
 		"code":    200,
 		"message": "获取成功",

@@ -1,54 +1,63 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useUserStore } from '../../stores/user'
 import { getTodayCourses } from '../../api/employee'
-import { ElMessage, ElLoading } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import CourseCard from '../../components/CourseCard.vue'
 
-// 今日课程数据
-const todayCourses = ref([])
-const loading = ref(false)
+const userStore = useUserStore()
+const loading = ref(true)
+const coursesData = ref({
+  date: '',
+  courseCount: 0,
+  courses: []
+})
 
-// 当前日期
 const currentDate = computed(() => {
-  const date = new Date()
+  if (!coursesData.value.date) {
+    const date = new Date()
+    const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
+    return date.toLocaleDateString('zh-CN', options)
+  }
+  
+  const date = new Date(coursesData.value.date)
   const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
   return date.toLocaleDateString('zh-CN', options)
 })
 
-// 加载今日课程
-const loadTodayCourses = async () => {
+const fetchTodayCourses = async () => {
   loading.value = true
   try {
     const response = await getTodayCourses()
-    todayCourses.value = response.data.courses || []
+    if (response.code === 200) {
+      coursesData.value = response.data
+    }
   } catch (error) {
-    console.error('加载今日课程失败:', error)
-    // 错误已在拦截器中处理
+    ElMessage.error('获取今日课程失败：' + (error.message || '未知错误'))
   } finally {
     loading.value = false
   }
 }
 
-// 页面加载时获取数据
 onMounted(() => {
-  loadTodayCourses()
+  fetchTodayCourses()
 })
 </script>
 
 <template>
-  <div class="page-container" v-loading="loading">
+  <div class="page-container">
     <div class="page-header">
       <h1>今日课程</h1>
       <p class="date-info">{{ currentDate }}</p>
     </div>
     
-    <div class="content-wrapper">
-      <el-empty v-if="todayCourses.length === 0" description="今天没有安排课程">
+    <div class="content-wrapper" v-loading="loading">
+      <el-empty v-if="!loading && coursesData.courseCount === 0" description="今天没有安排课程">
         <el-button type="primary" @click="$router.push('/employee/schedule')">查看课程表</el-button>
       </el-empty>
       
-      <el-row :gutter="20" v-else>
-        <el-col :xs="24" :sm="12" :lg="8" v-for="course in todayCourses" :key="course.itemId">
+      <el-row :gutter="20" v-else-if="!loading">
+        <el-col :xs="24" :sm="12" :lg="8" v-for="course in coursesData.courses" :key="course.itemId">
           <CourseCard :course="course" />
         </el-col>
       </el-row>

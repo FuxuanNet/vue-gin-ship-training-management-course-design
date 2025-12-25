@@ -88,9 +88,14 @@ func getGlobalStatistics() gin.H {
 	database.DB.Model(&database.TrainingPlan{}).Where("plan_status = ?", "已完成").Count(&completedPlanCount)
 
 	// 平均满意度（加权得分的平均值，转换为百分比）
+	var avgResult *float64
 	database.DB.Model(&database.AttendanceEvaluation{}).
 		Select("AVG(COALESCE(self_score, 0) * (1 - COALESCE(score_ratio, 0.5)) + COALESCE(teacher_score, 0) * COALESCE(score_ratio, 0.5))").
-		Scan(&averageSatisfaction)
+		Scan(&avgResult)
+	
+	if avgResult != nil {
+		averageSatisfaction = *avgResult
+	}
 
 	return gin.H{
 		"courseCount":         courseCount,

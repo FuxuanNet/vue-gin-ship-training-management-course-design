@@ -1,0 +1,1137 @@
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetCourseTypeScores 获取课程类型成绩分析
+func GetCourseTypeScores(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 查询用户姓名
+	var personName string
+	database.DB.Raw("SELECT name FROM person WHERE person_id = ?", personID).Scan(&personName)
+
+	// 查询各课程类型的成绩统计
+	rows, err := database.DB.Raw(`
+		SELECT 
+			c.course_class,
+			COUNT(*) AS course_count,
+			AVG(CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN 
+					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
+				ELSE ae.self_score
+			END) AS average_score,
+			MAX(CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN 
+					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
+				ELSE ae.self_score
+			END) AS max_score,
+			MIN(CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN 
+					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
+				ELSE ae.self_score
+			END) AS min_score
+		FROM attendance_evaluation ae
+		JOIN plan_course_item pci ON ae.item_id = pci.item_id
+		JOIN course c ON pci.course_id = c.course_id
+		WHERE ae.person_id = ? AND ae.self_score IS NOT NULL
+		GROUP BY c.course_class
+		ORDER BY average_score DESC
+	`, personID).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		return
+	}
+	defer rows.Close()
+
+	// 解析结果
+	var courseTypeScores []map[string]interface{}
+	var indicators []map[string]interface{}
+	var values []float64
+
+	for rows.Next() {
+		var (
+			courseClass  string
+			courseCount  int
+			averageScore float64
+			maxScore     float64
+			minScore     float64
+		)
+
+		rows.Scan(&courseClass, &courseCount, &averageScore, &maxScore, &minScore)
+
+		courseTypeScore := map[string]interface{}{
+			"courseClass":  courseClass,
+			"courseCount":  courseCount,
+			"averageScore": averageScore,
+			"maxScore":     maxScore,
+			"minScore":     minScore,
+		}
+		courseTypeScores = append(courseTypeScores, courseTypeScore)
+
+		// 为雷达图准备数据
+		indicators = append(indicators, map[string]interface{}{
+			"name": courseClass,
+			"max":  100,
+		})
+		values = append(values, averageScore)
+	}
+
+	// 如果没有数据
+	if len(courseTypeScores) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"code":    200,
+			"message": "暂无成绩数据",
+			"data": gin.H{
+				"personId":         personID,
+				"personName":       personName,
+				"courseTypeScores": []interface{}{},
+				"radarData": gin.H{
+					"indicators": []interface{}{},
+					"values":     []interface{}{},
+				},
+			},
+		})
+		return
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"personId":         personID,
+			"personName":       personName,
+			"courseTypeScores": courseTypeScores,
+			"radarData": gin.H{
+				"indicators": indicators,
+				"values":     values,
+			},
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetLearningProgress 获取员工学习进度
+func GetLearningProgress(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 查询用户姓名
+	var personName string
+	database.DB.Raw("SELECT name FROM person WHERE person_id = ?", personID).Scan(&personName)
+
+	// 查询整体进度
+	var (
+		totalPlans        int
+		totalCourses      int
+		completedCourses  int
+		evaluatedCourses  int
+		averageScore      float64
+	)
+
+	// 参与的培训计划总数
+	database.DB.Raw(`
+		SELECT COUNT(DISTINCT plan_id) FROM plan_employee WHERE person_id = ?
+	`, personID).Scan(&totalPlans)
+
+	// 总课程数（已上过的）
+	database.DB.Raw(`
+		SELECT COUNT(*)
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		WHERE pe.person_id = ? AND pci.class_date < CURDATE()
+	`, personID).Scan(&totalCourses)
+
+	// 已完成课程数（有自评或讲师评分的�?
+	database.DB.Raw(`
+		SELECT COUNT(*)
+		FROM attendance_evaluation ae
+		JOIN plan_course_item pci ON ae.item_id = pci.item_id
+		WHERE ae.person_id = ? AND (ae.self_score IS NOT NULL OR ae.teacher_score IS NOT NULL)
+	`, personID).Scan(&completedCourses)
+
+	// 已自评课程数
+	database.DB.Raw(`
+		SELECT COUNT(*)
+		FROM attendance_evaluation 
+		WHERE person_id = ? AND self_score IS NOT NULL
+	`, personID).Scan(&evaluatedCourses)
+
+	// 平均�?
+	database.DB.Raw(`
+		SELECT AVG(CASE 
+			WHEN teacher_score IS NOT NULL THEN 
+				self_score * (1 - score_ratio) + teacher_score * score_ratio
+			ELSE self_score
+		END)
+		FROM attendance_evaluation 
+		WHERE person_id = ? AND self_score IS NOT NULL
+	`, personID).Scan(&averageScore)
+
+	// 计算完成百分�?
+	progressPercentage := 0.0
+	if totalCourses > 0 {
+		progressPercentage = float64(completedCourses) / float64(totalCourses) * 100
+	}
+
+	// 查询各计划的进度
+	planRows, err := database.DB.Raw(`
+		SELECT 
+			tp.plan_id,
+			tp.plan_name,
+			tp.plan_status,
+			COUNT(DISTINCT pci.item_id) AS total_courses,
+			COUNT(DISTINCT ae.item_id) AS completed_courses,
+			AVG(CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN 
+					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
+				ELSE ae.self_score
+			END) AS average_score
+		FROM plan_employee pe
+		JOIN training_plan tp ON pe.plan_id = tp.plan_id
+		LEFT JOIN plan_course_item pci ON tp.plan_id = pci.plan_id AND pci.class_date < CURDATE()
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+		WHERE pe.person_id = ?
+		GROUP BY tp.plan_id, tp.plan_name, tp.plan_status
+		ORDER BY tp.plan_start_datetime DESC
+	`, personID, personID).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询计划进度失败", "data": nil})
+		return
+	}
+	defer planRows.Close()
+
+	var planProgress []map[string]interface{}
+	for planRows.Next() {
+		var (
+			planID           int64
+			planName         string
+			planStatus       string
+			planTotalCourses int
+			planCompleted    int
+			planAvgScore     *float64
+		)
+
+		planRows.Scan(&planID, &planName, &planStatus, &planTotalCourses, &planCompleted, &planAvgScore)
+
+		planProgressPercentage := 0.0
+		if planTotalCourses > 0 {
+			planProgressPercentage = float64(planCompleted) / float64(planTotalCourses) * 100
+		}
+
+		avgScore := 0.0
+		if planAvgScore != nil {
+			avgScore = *planAvgScore
+		}
+
+		plan := map[string]interface{}{
+			"planId":              planID,
+			"planName":            planName,
+			"planStatus":          planStatus,
+			"totalCourses":        planTotalCourses,
+			"completedCourses":    planCompleted,
+			"progressPercentage":  planProgressPercentage,
+			"averageScore":        avgScore,
+		}
+		planProgress = append(planProgress, plan)
+	}
+
+	// 查询最�?条学习记�?
+	recentRows, err := database.DB.Raw(`
+		SELECT 
+			pci.item_id,
+			pci.course_id,
+			c.course_name,
+			pci.class_date,
+			CASE 
+				WHEN ae.person_id IS NOT NULL THEN true
+				ELSE false
+			END AS has_evaluated
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		JOIN course c ON pci.course_id = c.course_id
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+		WHERE pe.person_id = ? AND pci.class_date < CURDATE()
+		ORDER BY pci.class_date DESC
+		LIMIT 5
+	`, personID, personID).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询最近课程失�?, "data": nil})
+		return
+	}
+	defer recentRows.Close()
+
+	var recentCourses []map[string]interface{}
+	for recentRows.Next() {
+		var (
+			itemID       int64
+			courseID     int64
+			courseName   string
+			classDate    string
+			hasEvaluated bool
+		)
+
+		recentRows.Scan(&itemID, &courseID, &courseName, &classDate, &hasEvaluated)
+
+		recent := map[string]interface{}{
+			"itemId":       itemID,
+			"courseId":     courseID,
+			"courseName":   courseName,
+			"classDate":    classDate,
+			"hasEvaluated": hasEvaluated,
+		}
+		recentCourses = append(recentCourses, recent)
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"personId":   personID,
+			"personName": personName,
+			"overallProgress": gin.H{
+				"totalPlans":         totalPlans,
+				"totalCourses":       totalCourses,
+				"completedCourses":   completedCourses,
+				"evaluatedCourses":   evaluatedCourses,
+				"progressPercentage": progressPercentage,
+				"averageScore":       averageScore,
+			},
+			"planProgress":   planProgress,
+			"recentCourses":  recentCourses,
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetPendingEvaluations 获取待自评课程列�?
+func GetPendingEvaluations(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 获取查询参数
+	status := c.DefaultQuery("status", "pending") // pending �?all
+	limitStr := c.DefaultQuery("limit", "0")      // 0表示不限�?
+	limit, _ := strconv.Atoi(limitStr)
+
+	// 构建WHERE条件
+	whereClause := ""
+	if status == "pending" {
+		whereClause = "AND ae.person_id IS NULL" // 未自�?
+	}
+
+	// 构建LIMIT条件
+	limitClause := ""
+	if limit > 0 {
+		limitClause = " LIMIT " + limitStr
+	}
+
+	// 查询课程（已上完的课程）
+	query := `
+		SELECT 
+			pci.item_id,
+			pci.course_id,
+			c.course_name,
+			c.course_desc,
+			c.course_class,
+			pci.class_date,
+			pci.class_begin_time,
+			pci.class_end_time,
+			pci.location,
+			pci.plan_id,
+			tp.plan_name,
+			c.teacher_id,
+			p.name AS teacher_name,
+			CASE 
+				WHEN ae.person_id IS NOT NULL THEN 'evaluated'
+				ELSE 'pending'
+			END AS evaluation_status
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		JOIN course c ON pci.course_id = c.course_id
+		JOIN training_plan tp ON pci.plan_id = tp.plan_id
+		JOIN person p ON c.teacher_id = p.person_id
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+		WHERE pe.person_id = ? 
+			AND pci.class_date < CURDATE()
+			` + whereClause + `
+		ORDER BY pci.class_date DESC
+	` + limitClause
+
+	rows, err := database.DB.Raw(query, personID, personID).Rows()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		return
+	}
+	defer rows.Close()
+
+	// 解析结果
+	var courses []map[string]interface{}
+	pendingCount := 0
+
+	for rows.Next() {
+		var (
+			itemID           int64
+			courseID         int64
+			courseName       string
+			courseDesc       string
+			courseClass      string
+			classDate        string
+			classBeginTime   string
+			classEndTime     string
+			location         string
+			planID           int64
+			planName         string
+			teacherID        int64
+			teacherName      string
+			evaluationStatus string
+		)
+
+		rows.Scan(
+			&itemID, &courseID, &courseName, &courseDesc, &courseClass,
+			&classDate, &classBeginTime, &classEndTime, &location,
+			&planID, &planName, &teacherID, &teacherName, &evaluationStatus,
+		)
+
+		if evaluationStatus == "pending" {
+			pendingCount++
+		}
+
+		course := map[string]interface{}{
+			"itemId":           itemID,
+			"courseId":         courseID,
+			"courseName":       courseName,
+			"courseDesc":       courseDesc,
+			"courseClass":      courseClass,
+			"classDate":        classDate,
+			"classBeginTime":   classBeginTime,
+			"classEndTime":     classEndTime,
+			"location":         location,
+			"planId":           planID,
+			"planName":         planName,
+			"teacherId":        teacherID,
+			"teacherName":      teacherName,
+			"evaluationStatus": evaluationStatus,
+		}
+		courses = append(courses, course)
+	}
+
+	// 如果没有设置limit，totalCount等于courses长度
+	totalCount := len(courses)
+	if limit > 0 && status == "all" {
+		// 需要查询总数
+		var count int64
+		database.DB.Raw(`
+			SELECT COUNT(*)
+			FROM plan_employee pe
+			JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+			WHERE pe.person_id = ? AND pci.class_date < CURDATE()
+		`, personID).Scan(&count)
+		totalCount = int(count)
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"totalCount":   totalCount,
+			"pendingCount": pendingCount,
+			"courses":      courses,
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetSchedule 获取员工课程�?
+func GetSchedule(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 获取查询参数
+	startDate := c.Query("startDate")
+	endDate := c.Query("endDate")
+
+	// 验证日期参数
+	if startDate == "" || endDate == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "日期参数错误", "data": nil})
+		return
+	}
+
+	// 验证日期格式
+	_, err1 := time.Parse("2006-01-02", startDate)
+	_, err2 := time.Parse("2006-01-02", endDate)
+	if err1 != nil || err2 != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "日期格式错误，应为YYYY-MM-DD", "data": nil})
+		return
+	}
+
+	// 查询课程�?
+	rows, err := database.DB.Raw(`
+		SELECT 
+			pci.item_id,
+			pci.course_id,
+			c.course_name,
+			c.course_desc,
+			c.course_class,
+			pci.class_date,
+			pci.class_begin_time,
+			pci.class_end_time,
+			pci.location,
+			pci.plan_id,
+			tp.plan_name,
+			c.teacher_id,
+			p.name AS teacher_name,
+			CASE 
+				WHEN ae.person_id IS NOT NULL THEN true 
+				ELSE false 
+			END AS has_evaluated
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		JOIN course c ON pci.course_id = c.course_id
+		JOIN training_plan tp ON pci.plan_id = tp.plan_id
+		JOIN person p ON c.teacher_id = p.person_id
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+		WHERE pe.person_id = ? 
+			AND pci.class_date >= ? 
+			AND pci.class_date <= ?
+		ORDER BY pci.class_date ASC, pci.class_begin_time ASC
+	`, personID, personID, startDate, endDate).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		return
+	}
+	defer rows.Close()
+
+	// 按日期组织课�?
+	scheduleMap := make(map[string][]map[string]interface{})
+	totalCourses := 0
+
+	for rows.Next() {
+		var (
+			itemID         int64
+			courseID       int64
+			courseName     string
+			courseDesc     string
+			courseClass    string
+			classDate      string
+			classBeginTime string
+			classEndTime   string
+			location       string
+			planID         int64
+			planName       string
+			teacherID      int64
+			teacherName    string
+			hasEvaluated   bool
+		)
+
+		rows.Scan(
+			&itemID, &courseID, &courseName, &courseDesc, &courseClass,
+			&classDate, &classBeginTime, &classEndTime, &location,
+			&planID, &planName, &teacherID, &teacherName, &hasEvaluated,
+		)
+
+		course := map[string]interface{}{
+			"itemId":         itemID,
+			"courseId":       courseID,
+			"courseName":     courseName,
+			"courseDesc":     courseDesc,
+			"courseClass":    courseClass,
+			"classBeginTime": classBeginTime,
+			"classEndTime":   classEndTime,
+			"location":       location,
+			"planId":         planID,
+			"planName":       planName,
+			"teacherId":      teacherID,
+			"teacherName":    teacherName,
+			"hasEvaluated":   hasEvaluated,
+		}
+
+		scheduleMap[classDate] = append(scheduleMap[classDate], course)
+		totalCourses++
+	}
+
+	// 构建返回数据（包含所有日期，即使没有课程�?
+	schedule := []map[string]interface{}{}
+	start, _ := time.Parse("2006-01-02", startDate)
+	end, _ := time.Parse("2006-01-02", endDate)
+
+	for d := start; !d.After(end); d = d.AddDate(0, 0, 1) {
+		dateStr := d.Format("2006-01-02")
+		courses := scheduleMap[dateStr]
+		if courses == nil {
+			courses = []map[string]interface{}{}
+		}
+
+		schedule = append(schedule, map[string]interface{}{
+			"date":        dateStr,
+			"courseCount": len(courses),
+			"courses":     courses,
+		})
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"startDate":    startDate,
+			"endDate":      endDate,
+			"totalCourses": totalCourses,
+			"schedule":     schedule,
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetScores 获取员工成绩列表
+func GetScores(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 获取查询参数
+	planID := c.Query("planId")
+	courseClass := c.Query("courseClass")
+	startDate := c.Query("startDate")
+	endDate := c.Query("endDate")
+
+	// 构建WHERE条件
+	whereConditions := "WHERE pe.person_id = ? AND pci.class_date < CURDATE()"
+	params := []interface{}{personID}
+
+	if planID != "" {
+		whereConditions += " AND pci.plan_id = ?"
+		params = append(params, planID)
+	}
+	if courseClass != "" {
+		whereConditions += " AND c.course_class = ?"
+		params = append(params, courseClass)
+	}
+	if startDate != "" {
+		whereConditions += " AND pci.class_date >= ?"
+		params = append(params, startDate)
+	}
+	if endDate != "" {
+		whereConditions += " AND pci.class_date <= ?"
+		params = append(params, endDate)
+	}
+
+	// 查询成绩数据
+	query := `
+		SELECT 
+			pci.item_id,
+			pci.course_id,
+			c.course_name,
+			c.course_desc,
+			c.course_class,
+			pci.class_date,
+			pci.class_begin_time,
+			pci.class_end_time,
+			pci.location,
+			pci.plan_id,
+			tp.plan_name,
+			c.teacher_id,
+			p.name AS teacher_name,
+			ae.self_score,
+			ae.self_comment,
+			ae.teacher_score,
+			ae.teacher_comment,
+			ae.score_ratio,
+			CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN 
+					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
+				ELSE NULL
+			END AS weighted_score,
+			CASE 
+				WHEN ae.teacher_score IS NOT NULL THEN true
+				ELSE false
+			END AS has_teacher_score
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		JOIN course c ON pci.course_id = c.course_id
+		JOIN training_plan tp ON pci.plan_id = tp.plan_id
+		JOIN person p ON c.teacher_id = p.person_id
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+	` + whereConditions + `
+		ORDER BY pci.class_date DESC
+	`
+
+	rows, err := database.DB.Raw(query, append([]interface{}{personID}, params...)...).Rows()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		return
+	}
+	defer rows.Close()
+
+	// 解析结果
+	var scores []map[string]interface{}
+	var totalCourses, completedCourses, pendingEvaluation int
+	var sumScore, maxScore, minScore float64
+	maxScore = 0
+	minScore = 100
+
+	for rows.Next() {
+		var (
+			itemID          int64
+			courseID        int64
+			courseName      string
+			courseDesc      string
+			courseClass     string
+			classDate       string
+			classBeginTime  string
+			classEndTime    string
+			location        string
+			planID          int64
+			planName        string
+			teacherID       int64
+			teacherName     string
+			selfScore       *float64
+			selfComment     *string
+			teacherScore    *float64
+			teacherComment  *string
+			scoreRatio      *float64
+			weightedScore   *float64
+			hasTeacherScore bool
+		)
+
+		rows.Scan(
+			&itemID, &courseID, &courseName, &courseDesc, &courseClass,
+			&classDate, &classBeginTime, &classEndTime, &location,
+			&planID, &planName, &teacherID, &teacherName,
+			&selfScore, &selfComment, &teacherScore, &teacherComment,
+			&scoreRatio, &weightedScore, &hasTeacherScore,
+		)
+
+		totalCourses++
+		if selfScore != nil {
+			completedCourses++
+			if weightedScore != nil {
+				sumScore += *weightedScore
+				if *weightedScore > maxScore {
+					maxScore = *weightedScore
+				}
+				if *weightedScore < minScore {
+					minScore = *weightedScore
+				}
+			} else if selfScore != nil {
+				sumScore += *selfScore
+				if *selfScore > maxScore {
+					maxScore = *selfScore
+				}
+				if *selfScore < minScore {
+					minScore = *selfScore
+				}
+			}
+		} else {
+			pendingEvaluation++
+		}
+
+		score := map[string]interface{}{
+			"itemId":          itemID,
+			"courseId":        courseID,
+			"courseName":      courseName,
+			"courseDesc":      courseDesc,
+			"courseClass":     courseClass,
+			"classDate":       classDate,
+			"classBeginTime":  classBeginTime,
+			"classEndTime":    classEndTime,
+			"location":        location,
+			"planId":          planID,
+			"planName":        planName,
+			"teacherId":       teacherID,
+			"teacherName":     teacherName,
+			"selfScore":       selfScore,
+			"selfComment":     selfComment,
+			"teacherScore":    teacherScore,
+			"teacherComment":  teacherComment,
+			"scoreRatio":      scoreRatio,
+			"weightedScore":   weightedScore,
+			"hasTeacherScore": hasTeacherScore,
+		}
+		scores = append(scores, score)
+	}
+
+	// 计算平均�?
+	var averageScore float64
+	if completedCourses > 0 {
+		averageScore = sumScore / float64(completedCourses)
+	}
+
+	// 如果没有成绩，重置最大最小�?
+	if completedCourses == 0 {
+		maxScore = 0
+		minScore = 0
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"statistics": gin.H{
+				"totalCourses":      totalCourses,
+				"completedCourses":  completedCourses,
+				"pendingEvaluation": pendingEvaluation,
+				"averageScore":      averageScore,
+				"maxScore":          maxScore,
+				"minScore":          minScore,
+			},
+			"scores": scores,
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"backend/utils"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// SubmitEvaluationRequest 提交自评请求结构
+type SubmitEvaluationRequest struct {
+	ItemID        int64  `json:"itemId" binding:"required"`
+	SelfComment   string `json:"selfComment" binding:"required,min=50,max=1000"`
+	Understanding int    `json:"understanding"` // 1-5
+	Difficulty    int    `json:"difficulty"`    // 1-5
+	Satisfaction  int    `json:"satisfaction"`  // 1-5
+}
+
+// SubmitEvaluation 提交课程自评
+func SubmitEvaluation(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 解析请求
+	var req SubmitEvaluationRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "参数错误�? + err.Error(), "data": nil})
+		return
+	}
+
+	// 设置默认�?
+	if req.Understanding == 0 {
+		req.Understanding = 3
+	}
+	if req.Difficulty == 0 {
+		req.Difficulty = 3
+	}
+	if req.Satisfaction == 0 {
+		req.Satisfaction = 3
+	}
+
+	// 验证课程是否属于该员�?
+	var count int64
+	database.DB.Raw(`
+		SELECT COUNT(*)
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		WHERE pe.person_id = ? AND pci.item_id = ?
+	`, personID, req.ItemID).Scan(&count)
+
+	if count == 0 {
+		c.JSON(http.StatusForbidden, gin.H{"code": 403, "message": "无权限：该课程不属于您的课程安排", "data": nil})
+		return
+	}
+
+	// 查询课程信息
+	var (
+		courseID   int64
+		courseName string
+		classDate  string
+	)
+	err := database.DB.Raw(`
+		SELECT pci.course_id, c.course_name, pci.class_date
+		FROM plan_course_item pci
+		JOIN course c ON pci.course_id = c.course_id
+		WHERE pci.item_id = ?
+	`, req.ItemID).Row().Scan(&courseID, &courseName, &classDate)
+
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "课程不存�?, "data": nil})
+		return
+	}
+
+	// 验证课程是否已上�?
+	classDateParsed, _ := time.Parse("2006-01-02", classDate)
+	if classDateParsed.After(time.Now()) || classDateParsed.Equal(time.Now().Truncate(24*time.Hour)) {
+		c.JSON(http.StatusBadRequest, gin.H{"code": 400, "message": "课程尚未开始，暂不能自�?, "data": nil})
+		return
+	}
+
+	// 调用AI生成评分
+	selfScore, err := utils.GenerateEvaluationScore(
+		req.SelfComment,
+		req.Understanding,
+		req.Difficulty,
+		req.Satisfaction,
+		courseName,
+	)
+	if err != nil {
+		// AI调用失败，记录日志但不中断流�?
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "AI评分服务异常，请稍后重试", "data": nil})
+		return
+	}
+
+	// 查询是否已有评价记录
+	var existingID int64
+	database.DB.Raw(`
+		SELECT person_id 
+		FROM attendance_evaluation 
+		WHERE person_id = ? AND item_id = ?
+	`, personID, req.ItemID).Scan(&existingID)
+
+	// 插入或更新评价记�?
+	if existingID > 0 {
+		// 更新现有记录
+		err = database.DB.Exec(`
+			UPDATE attendance_evaluation 
+			SET self_score = ?, self_comment = ?
+			WHERE person_id = ? AND item_id = ?
+		`, selfScore, req.SelfComment, personID, req.ItemID).Error
+	} else {
+		// 插入新记录（score_ratio默认�?.5，即自评和讲师评分各�?0%�?
+		err = database.DB.Exec(`
+			INSERT INTO attendance_evaluation 
+			(person_id, item_id, self_score, self_comment, score_ratio) 
+			VALUES (?, ?, ?, ?, 0.5)
+		`, personID, req.ItemID, selfScore, req.SelfComment).Error
+	}
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "保存失败", "data": nil})
+		return
+	}
+
+	// 查询讲师评分（如果有�?
+	var teacherScore *float64
+	var weightedScore *float64
+	database.DB.Raw(`
+		SELECT teacher_score,
+			CASE 
+				WHEN teacher_score IS NOT NULL THEN 
+					self_score * (1 - score_ratio) + teacher_score * score_ratio
+				ELSE NULL
+			END AS weighted_score
+		FROM attendance_evaluation 
+		WHERE person_id = ? AND item_id = ?
+	`, personID, req.ItemID).Row().Scan(&teacherScore, &weightedScore)
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "自评提交成功",
+		"data": gin.H{
+			"itemId":        req.ItemID,
+			"courseId":      courseID,
+			"courseName":    courseName,
+			"selfScore":     selfScore,
+			"selfComment":   req.SelfComment,
+			"teacherScore":  teacherScore,
+			"weightedScore": weightedScore,
+			"evaluatedAt":   time.Now().Format("2006-01-02 15:04:05"),
+		},
+	})
+}
+
+package employee
+
+import (
+	"backend/database"
+	"net/http"
+	"time"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetTodayCourses 获取员工今日课程列表
+func GetTodayCourses(c *gin.Context) {
+	// 从中间件获取用户ID
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登�?, "data": nil})
+		return
+	}
+
+	// 获取今天的日�?
+	today := time.Now().Format("2006-01-02")
+
+	// 查询今日课程
+	var courses []map[string]interface{}
+	
+	// SQL查询：通过plan_employee关联查找该员工今日的课程
+	rows, err := database.DB.Raw(`
+		SELECT 
+			pci.item_id,
+			pci.course_id,
+			c.course_name,
+			c.course_desc,
+			c.course_require,
+			c.course_class,
+			pci.class_date,
+			pci.class_begin_time,
+			pci.class_end_time,
+			pci.location,
+			pci.plan_id,
+			tp.plan_name,
+			c.teacher_id,
+			p.name AS teacher_name,
+			CASE 
+				WHEN ae.person_id IS NOT NULL THEN true 
+				ELSE false 
+			END AS has_evaluated,
+			CASE 
+				WHEN pci.class_date < CURDATE() THEN '已完�?
+				WHEN pci.class_date = CURDATE() THEN '待上�?
+				ELSE '待上�?
+			END AS status
+		FROM plan_employee pe
+		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
+		JOIN course c ON pci.course_id = c.course_id
+		JOIN training_plan tp ON pci.plan_id = tp.plan_id
+		JOIN person p ON c.teacher_id = p.person_id
+		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
+		WHERE pe.person_id = ? AND DATE(pci.class_date) = ?
+		ORDER BY pci.class_begin_time ASC
+	`, personID, personID, today).Rows()
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		return
+	}
+	defer rows.Close()
+
+	// 解析结果
+	for rows.Next() {
+		var (
+			itemID          int64
+			courseID        int64
+			courseName      string
+			courseDesc      string
+			courseRequire   string
+			courseClass     string
+			classDate       string
+			classBeginTime  string
+			classEndTime    string
+			location        string
+			planID          int64
+			planName        string
+			teacherID       int64
+			teacherName     string
+			hasEvaluated    bool
+			status          string
+		)
+
+		rows.Scan(
+			&itemID, &courseID, &courseName, &courseDesc, &courseRequire,
+			&courseClass, &classDate, &classBeginTime, &classEndTime,
+			&location, &planID, &planName, &teacherID, &teacherName,
+			&hasEvaluated, &status,
+		)
+
+		course := map[string]interface{}{
+			"itemId":         itemID,
+			"courseId":       courseID,
+			"courseName":     courseName,
+			"courseDesc":     courseDesc,
+			"courseRequire":  courseRequire,
+			"courseClass":    courseClass,
+			"classDate":      classDate,
+			"classBeginTime": classBeginTime,
+			"classEndTime":   classEndTime,
+			"location":       location,
+			"planId":         planID,
+			"planName":       planName,
+			"teacherId":      teacherID,
+			"teacherName":    teacherName,
+			"hasEvaluated":   hasEvaluated,
+			"status":         status,
+		}
+		courses = append(courses, course)
+	}
+
+	// 返回结果
+	c.JSON(http.StatusOK, gin.H{
+		"code":    200,
+		"message": "获取成功",
+		"data": gin.H{
+			"date":        today,
+			"courseCount": len(courses),
+			"courses":     courses,
+		},
+	})
+}
+

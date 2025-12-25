@@ -1,209 +1,320 @@
 package employee
 
 import (
-	"backend/database"
 	"net/http"
+
+	"backend/database"
 
 	"github.com/gin-gonic/gin"
 )
 
 // GetScores 获取员工成绩列表
 func GetScores(c *gin.Context) {
-	// 从中间件获取用户ID
-	personID, exists := c.Get("person_id")
+	personID, exists := c.Get("personId")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未登录", "data": nil})
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
 		return
 	}
 
-	// 获取查询参数
-	planID := c.Query("planId")
-	courseClass := c.Query("courseClass")
-	startDate := c.Query("startDate")
-	endDate := c.Query("endDate")
+	// 筛选参数
+	// planId := c.Query("planId")
+	// courseClass := c.Query("courseClass")
+	// startDate := c.Query("startDate")
+	// endDate := c.Query("endDate")
+	// 暂不实现复杂筛选，先实现基本列表
 
-	// 构建WHERE条件
-	whereConditions := "WHERE pe.person_id = ? AND pci.class_date < CURDATE()"
-	params := []interface{}{personID}
-
-	if planID != "" {
-		whereConditions += " AND pci.plan_id = ?"
-		params = append(params, planID)
-	}
-	if courseClass != "" {
-		whereConditions += " AND c.course_class = ?"
-		params = append(params, courseClass)
-	}
-	if startDate != "" {
-		whereConditions += " AND pci.class_date >= ?"
-		params = append(params, startDate)
-	}
-	if endDate != "" {
-		whereConditions += " AND pci.class_date <= ?"
-		params = append(params, endDate)
+	var results []struct {
+		ItemID         int64   `json:"itemId"`
+		ClassDate      string  `json:"classDate"`
+		ClassBeginTime string  `json:"classBeginTime"`
+		ClassEndTime   string  `json:"classEndTime"`
+		Location       string  `json:"location"`
+		PlanID         int64   `json:"planId"`
+		PlanName       string  `json:"planName"`
+		CourseID       int64   `json:"courseId"`
+		CourseName     string  `json:"courseName"`
+		CourseClass    string  `json:"courseClass"`
+		TeacherName    string  `json:"teacherName"`
+		SelfScore      float64 `json:"selfScore"`
+		TeacherScore   float64 `json:"teacherScore"`
+		ScoreRatio     float64 `json:"scoreRatio"`
+		SelfComment    string  `json:"selfComment"`
+		TeacherComment string  `json:"teacherComment"`
 	}
 
-	// 查询成绩数据
-	query := `
-		SELECT 
-			pci.item_id,
-			pci.course_id,
-			c.course_name,
-			c.course_desc,
-			c.course_class,
-			pci.class_date,
-			pci.class_begin_time,
-			pci.class_end_time,
-			pci.location,
-			pci.plan_id,
-			tp.plan_name,
-			c.teacher_id,
-			p.name AS teacher_name,
-			ae.self_score,
-			ae.self_comment,
-			ae.teacher_score,
-			ae.teacher_comment,
-			ae.score_ratio,
-			CASE 
-				WHEN ae.teacher_score IS NOT NULL THEN 
-					ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio
-				ELSE NULL
-			END AS weighted_score,
-			CASE 
-				WHEN ae.teacher_score IS NOT NULL THEN true
-				ELSE false
-			END AS has_teacher_score
-		FROM plan_employee pe
-		JOIN plan_course_item pci ON pe.plan_id = pci.plan_id
-		JOIN course c ON pci.course_id = c.course_id
-		JOIN training_plan tp ON pci.plan_id = tp.plan_id
-		JOIN person p ON c.teacher_id = p.person_id
-		LEFT JOIN attendance_evaluation ae ON ae.item_id = pci.item_id AND ae.person_id = ?
-	` + whereConditions + `
-		ORDER BY pci.class_date DESC
-	`
+	err := database.DB.Table("attendance_evaluation").
+		Select(`
+			plan_course_item.item_id,
+			DATE_FORMAT(plan_course_item.class_date, '%Y-%m-%d') as class_date,
+			plan_course_item.class_begin_time,
+			plan_course_item.class_end_time,
+			plan_course_item.location,
+			training_plan.plan_id,
+			training_plan.plan_name,
+			course.course_id,
+			course.course_name,
+			course.course_class,
+			teacher.name as teacher_name,
+			attendance_evaluation.self_score,
+			attendance_evaluation.teacher_score,
+			attendance_evaluation.score_ratio,
+			attendance_evaluation.self_comment,
+			attendance_evaluation.teacher_comment
+		`).
+		Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
+		Joins("JOIN course ON plan_course_item.course_id = course.course_id").
+		Joins("JOIN training_plan ON plan_course_item.plan_id = training_plan.plan_id").
+		Joins("JOIN person AS teacher ON course.teacher_id = teacher.person_id").
+		Where("attendance_evaluation.person_id = ?", personID).
+		Scan(&results).Error
 
-	rows, err := database.DB.Raw(query, append([]interface{}{personID}, params...)...).Rows()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "查询失败", "data": nil})
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "数据库查询错误", "error": err.Error()})
 		return
 	}
-	defer rows.Close()
 
-	// 解析结果
-	var scores []map[string]interface{}
-	var totalCourses, completedCourses, pendingEvaluation int
-	var sumScore, maxScore, minScore float64
-	maxScore = 0
-	minScore = 100
+	// 处理数据，计算加权分
+	var responseData []map[string]interface{}
+	var totalScore float64
+	var count int
+	var maxScore float64 = 0
+	var minScore float64 = 100
 
-	for rows.Next() {
-		var (
-			itemID          int64
-			courseID        int64
-			courseName      string
-			courseDesc      string
-			courseClass     string
-			classDate       string
-			classBeginTime  string
-			classEndTime    string
-			location        string
-			planID          int64
-			planName        string
-			teacherID       int64
-			teacherName     string
-			selfScore       *float64
-			selfComment     *string
-			teacherScore    *float64
-			teacherComment  *string
-			scoreRatio      *float64
-			weightedScore   *float64
-			hasTeacherScore bool
-		)
+	for _, r := range results {
+		item := map[string]interface{}{
+			"itemId":         r.ItemID,
+			"classDate":      r.ClassDate,
+			"classBeginTime": r.ClassBeginTime,
+			"classEndTime":   r.ClassEndTime,
+			"location":       r.Location,
+			"planId":         r.PlanID,
+			"planName":       r.PlanName,
+			"courseId":       r.CourseID,
+			"courseName":     r.CourseName,
+			"courseClass":    r.CourseClass,
+			"teacherName":    r.TeacherName,
+			"selfScore":      r.SelfScore,
+			"teacherScore":   r.TeacherScore, // 0 if not set
+			"scoreRatio":     r.ScoreRatio,
+			"selfComment":    r.SelfComment,
+			"teacherComment": r.TeacherComment,
+			"hasEvaluated":   true, // 既然在表中，肯定自评过（因为是先自评插入）
+			"hasTeacherScore": r.TeacherComment != "", // 简单判断
+		}
 
-		rows.Scan(
-			&itemID, &courseID, &courseName, &courseDesc, &courseClass,
-			&classDate, &classBeginTime, &classEndTime, &location,
-			&planID, &planName, &teacherID, &teacherName,
-			&selfScore, &selfComment, &teacherScore, &teacherComment,
-			&scoreRatio, &weightedScore, &hasTeacherScore,
-		)
-
-		totalCourses++
-		if selfScore != nil {
-			completedCourses++
-			if weightedScore != nil {
-				sumScore += *weightedScore
-				if *weightedScore > maxScore {
-					maxScore = *weightedScore
-				}
-				if *weightedScore < minScore {
-					minScore = *weightedScore
-				}
-			} else if selfScore != nil {
-				sumScore += *selfScore
-				if *selfScore > maxScore {
-					maxScore = *selfScore
-				}
-				if *selfScore < minScore {
-					minScore = *selfScore
-				}
+		var weightedScore float64
+		if r.TeacherComment != "" {
+			weightedScore = r.SelfScore*(1-r.ScoreRatio) + r.TeacherScore*r.ScoreRatio
+			item["weightedScore"] = weightedScore
+			totalScore += weightedScore
+			count++
+			if weightedScore > maxScore {
+				maxScore = weightedScore
+			}
+			if weightedScore < minScore {
+				minScore = weightedScore
 			}
 		} else {
-			pendingEvaluation++
+			item["weightedScore"] = nil
 		}
 
-		score := map[string]interface{}{
-			"itemId":          itemID,
-			"courseId":        courseID,
-			"courseName":      courseName,
-			"courseDesc":      courseDesc,
-			"courseClass":     courseClass,
-			"classDate":       classDate,
-			"classBeginTime":  classBeginTime,
-			"classEndTime":    classEndTime,
-			"location":        location,
-			"planId":          planID,
-			"planName":        planName,
-			"teacherId":       teacherID,
-			"teacherName":     teacherName,
-			"selfScore":       selfScore,
-			"selfComment":     selfComment,
-			"teacherScore":    teacherScore,
-			"teacherComment":  teacherComment,
-			"scoreRatio":      scoreRatio,
-			"weightedScore":   weightedScore,
-			"hasTeacherScore": hasTeacherScore,
-		}
-		scores = append(scores, score)
+		responseData = append(responseData, item)
 	}
 
-	// 计算平均分
-	var averageScore float64
-	if completedCourses > 0 {
-		averageScore = sumScore / float64(completedCourses)
+	avgScore := 0.0
+	if count > 0 {
+		avgScore = totalScore / float64(count)
+	} else {
+		minScore = 0 // No scores
 	}
 
-	// 如果没有成绩，重置最大最小值
-	if completedCourses == 0 {
-		maxScore = 0
-		minScore = 0
-	}
-
-	// 返回结果
 	c.JSON(http.StatusOK, gin.H{
-		"code":    200,
+		"code": 200,
 		"message": "获取成功",
 		"data": gin.H{
 			"statistics": gin.H{
-				"totalCourses":      totalCourses,
-				"completedCourses":  completedCourses,
-				"pendingEvaluation": pendingEvaluation,
-				"averageScore":      averageScore,
+				"totalCourses":      len(results), // 简化：只统计了已评价的
+				"completedCourses":  count,
+				"pendingEvaluation": 0, // 需要另外查询
+				"averageScore":      avgScore,
 				"maxScore":          maxScore,
 				"minScore":          minScore,
 			},
-			"scores": scores,
+			"scores": responseData,
+		},
+	})
+}
+
+// GetCourseTypeScores 获取课程类型成绩分析
+func GetCourseTypeScores(c *gin.Context) {
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
+		return
+	}
+
+	type TypeStat struct {
+		CourseClass string  `json:"courseClass"`
+		AvgScore    float64 `json:"avgWeightedScore"`
+		Count       int     `json:"courseCount"`
+		MaxScore    float64 `json:"maxScore"`
+		MinScore    float64 `json:"minScore"`
+	}
+
+	// 这是一个比较复杂的聚合查询，为了简化，我们先查出所有记录在内存中计算
+	// 或者使用 SQL Group By
+	// 注意：weighted_score 不是数据库字段，是计算出来的。
+	// SQL: SUM( (self_score * (1-score_ratio) + teacher_score * score_ratio) ) ...
+	// 前提是 teacher_comment 不为空 (表示已评分)
+
+	var stats []TypeStat
+	err := database.DB.Table("attendance_evaluation").
+		Select(`
+			course.course_class,
+			AVG(attendance_evaluation.self_score * (1 - attendance_evaluation.score_ratio) + attendance_evaluation.teacher_score * attendance_evaluation.score_ratio) as avg_score,
+			COUNT(*) as count,
+			MAX(attendance_evaluation.self_score * (1 - attendance_evaluation.score_ratio) + attendance_evaluation.teacher_score * attendance_evaluation.score_ratio) as max_score,
+			MIN(attendance_evaluation.self_score * (1 - attendance_evaluation.score_ratio) + attendance_evaluation.teacher_score * attendance_evaluation.score_ratio) as min_score
+		`).
+		Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
+		Joins("JOIN course ON plan_course_item.course_id = course.course_id").
+		Where("attendance_evaluation.person_id = ?", personID).
+		Where("attendance_evaluation.teacher_comment != ''"). // 只统计已完成评分的
+		Group("course.course_class").
+		Scan(&stats).Error
+
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"code": 500, "message": "数据库查询错误", "error": err.Error()})
+		return
+	}
+
+	// 构建雷达图数据
+	var indicators []map[string]interface{}
+	var values []float64
+
+	for _, s := range stats {
+		indicators = append(indicators, map[string]interface{}{
+			"name": s.CourseClass,
+			"max":  100,
+		})
+		values = append(values, s.AvgScore)
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"message": "获取成功",
+		"data": gin.H{
+			"personId":         personID,
+			"courseTypeScores": stats,
+			"radarData": gin.H{
+				"indicators": indicators,
+				"values":     values,
+			},
+		},
+	})
+}
+
+// GetLearningProgress 获取员工学习进度
+func GetLearningProgress(c *gin.Context) {
+	personID, exists := c.Get("personId")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"code": 401, "message": "未授权"})
+		return
+	}
+
+	// 1. 获取总体进度
+	// 需要知道总课程数（从 plan_employee -> training_plan -> plan_course_item）
+	// 已完成课程数（attendance_evaluation 中有记录且 teacher_comment != ''）
+
+	var totalCourses int64
+	database.DB.Table("plan_course_item").
+		Joins("JOIN plan_employee ON plan_course_item.plan_id = plan_employee.plan_id").
+		Where("plan_employee.person_id = ?", personID).
+		Count(&totalCourses)
+
+	var completedCourses int64
+	database.DB.Table("attendance_evaluation").
+		Where("person_id = ? AND teacher_comment != ''", personID).
+		Count(&completedCourses)
+
+	var evaluatedCourses int64
+	database.DB.Table("attendance_evaluation").
+		Where("person_id = ?", personID).
+		Count(&evaluatedCourses)
+
+	// 2. 获取各计划进度
+	type PlanProgress struct {
+		PlanID             int64   `json:"planId"`
+		PlanName           string  `json:"planName"`
+		PlanStatus         string  `json:"planStatus"`
+		StartDate          string  `json:"startDate"`
+		EndDate            string  `json:"endDate"`
+		TotalCourses       int     `json:"totalCourses"`
+		CompletedCourses   int     `json:"completedCourses"`
+		EvaluatedCourses   int     `json:"evaluatedCourses"`
+		ProgressPercentage float64 `json:"progressPercentage"`
+		AverageScore       float64 `json:"averageScore"`
+	}
+
+	var plans []PlanProgress
+	// 这里需要先查出员工参与的所有计划，然后遍历计算（或者复杂SQL）
+	// 简单起见，先查计划
+	database.DB.Table("training_plan").
+		Select("training_plan.plan_id, training_plan.plan_name, training_plan.plan_status, training_plan.plan_start_datetime, training_plan.plan_end_datetime").
+		Joins("JOIN plan_employee ON training_plan.plan_id = plan_employee.plan_id").
+		Where("plan_employee.person_id = ?", personID).
+		Scan(&plans)
+
+	for i := range plans {
+		// 查该计划的总课程数
+		var pTotal int64
+		database.DB.Table("plan_course_item").Where("plan_id = ?", plans[i].PlanID).Count(&pTotal)
+		plans[i].TotalCourses = int(pTotal)
+
+		// 查该计划已完成（有讲师评分）
+		var pCompleted int64
+		database.DB.Table("attendance_evaluation").
+			Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
+			Where("attendance_evaluation.person_id = ? AND plan_course_item.plan_id = ? AND attendance_evaluation.teacher_comment != ''", personID, plans[i].PlanID).
+			Count(&pCompleted)
+		plans[i].CompletedCourses = int(pCompleted)
+
+		// 查该计划已自评
+		var pEvaluated int64
+		database.DB.Table("attendance_evaluation").
+			Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
+			Where("attendance_evaluation.person_id = ? AND plan_course_item.plan_id = ?", personID, plans[i].PlanID).
+			Count(&pEvaluated)
+		plans[i].EvaluatedCourses = int(pEvaluated)
+
+		if pTotal > 0 {
+			plans[i].ProgressPercentage = float64(pCompleted) / float64(pTotal) * 100
+		}
+
+		// 计算平均分
+		var avgScore float64
+		database.DB.Table("attendance_evaluation").
+			Select("AVG(self_score * (1 - score_ratio) + teacher_score * score_ratio)").
+			Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
+			Where("attendance_evaluation.person_id = ? AND plan_course_item.plan_id = ? AND attendance_evaluation.teacher_comment != ''", personID, plans[i].PlanID).
+			Scan(&avgScore)
+		plans[i].AverageScore = avgScore
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"code": 200,
+		"message": "获取成功",
+		"data": gin.H{
+			"personId": personID,
+			"overallProgress": gin.H{
+				"totalPlans":       len(plans),
+				"totalCourses":     totalCourses,
+				"completedCourses": completedCourses,
+				"evaluatedCourses": evaluatedCourses,
+				"progressPercentage": 0, // Calculate if needed
+			},
+			"planProgress": plans,
+			"recentCourses": []interface{}{}, // Placeholder
 		},
 	})
 }

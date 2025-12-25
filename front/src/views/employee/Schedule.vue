@@ -1,10 +1,10 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { useMockDataStore } from '../../stores/mockData'
-import { useUserStore } from '../../stores/user'
+import { ref, computed, onMounted, watch } from 'vue'
+import { getSchedule } from '../../api/employee'
+import { ElMessage } from 'element-plus'
 
-const mockDataStore = useMockDataStore()
-const userStore = useUserStore()
+const loading = ref(true)
+const coursesData = ref([])
 const currentWeekOffset = ref(0)
 
 // 时间段定义
@@ -43,16 +43,29 @@ const weekDescription = computed(() => {
   return `${firstDay.monthDay} - ${lastDay.monthDay}`
 })
 
+// 获取课程表
+const fetchSchedule = async () => {
+  loading.value = true
+  const firstDay = weekDates.value[0]
+  const lastDay = weekDates.value[6]
+  
+  try {
+    const response = await getSchedule({
+      startDate: firstDay.dateStr,
+      endDate: lastDay.dateStr
+    })
+    if (response.code === 200) {
+      coursesData.value = response.data.courses || []
+    }
+  } catch (error) {
+    ElMessage.error('获取课程表失败：' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
 // 获取课程表数据
 const scheduleData = computed(() => {
-  // 获取员工所有课程
-  const allCourses = mockDataStore.courseItems
-    .map(item => ({
-      ...item,
-      course: mockDataStore.courses.find(c => c.course_id === item.course_id),
-      plan: mockDataStore.trainingPlans.find(p => p.plan_id === item.plan_id)
-    }))
-  
   // 按日期和时间段组织
   const schedule = {}
   weekDates.value.forEach(day => {
@@ -62,22 +75,29 @@ const scheduleData = computed(() => {
     })
   })
   
-  allCourses.forEach(course => {
-    if (schedule[course.class_date]) {
-      const timeKey = findTimeSlot(course.class_begin_time, course.class_end_time)
-      if (timeKey && schedule[course.class_date][timeKey]) {
-        schedule[course.class_date][timeKey].push(course)
+  // coursesData是后端返回的 {courses: [{date, courseCount, courses: [...]}]}
+  if (coursesData.value && Array.isArray(coursesData.value)) {
+    coursesData.value.forEach(daySchedule => {
+      const dateStr = daySchedule.date
+      if (schedule[dateStr] && daySchedule.courses) {
+        daySchedule.courses.forEach(course => {
+          const timeKey = findTimeSlot(course.classBeginTime, course.classEndTime)
+          if (timeKey && schedule[dateStr][timeKey]) {
+            schedule[dateStr][timeKey].push(course)
+          }
+        })
       }
-    }
-  })
+    })
+  }
   
   return schedule
 })
 
 // 查找对应的时间段
 const findTimeSlot = (beginTime, endTime) => {
+  const begin = beginTime.slice(0, 5)
   for (const slot of timeSlots) {
-    if (beginTime >= slot.start && beginTime < slot.end) {
+    if (begin >= slot.start && begin < slot.end) {
       return slot.label
     }
   }
@@ -93,6 +113,16 @@ const changeWeek = (offset) => {
 const goToCurrentWeek = () => {
   currentWeekOffset.value = 0
 }
+
+// 监听周变化
+watch(currentWeekOffset, () => {
+  fetchSchedule()
+})
+
+// 页面加载时获取数据
+onMounted(() => {
+  fetchSchedule()
+})
 
 // 判断是否是今天
 const isToday = (dateStr) => {
@@ -117,7 +147,7 @@ const isToday = (dateStr) => {
       </div>
     </div>
     
-    <div class="schedule-container">
+    <div class="schedule-container" v-loading="loading">
       <el-table :data="timeSlots" border class="schedule-table">
         <el-table-column label="时间" width="120" align="center">
           <template #default="{ row }">
@@ -141,20 +171,20 @@ const isToday = (dateStr) => {
           <template #default="{ row }">
             <div class="course-cell">
               <div 
-                v-for="course in scheduleData[day.dateStr][row.label]" 
-                :key="course.item_id"
+                v-for="course in scheduleData[day.dateStr]?.[row.label] || []" 
+                :key="course.itemId"
                 class="course-item"
               >
-                <div class="course-name">{{ course.course?.course_name }}</div>
+                <div class="course-name">{{ course.courseName }}</div>
                 <div class="course-location">
                   <el-icon><Location /></el-icon>
                   {{ course.location }}
                 </div>
                 <div class="course-time">
-                  {{ course.class_begin_time.slice(0, 5) }} - {{ course.class_end_time.slice(0, 5) }}
+                  {{ course.classBeginTime.slice(0, 5) }} - {{ course.classEndTime.slice(0, 5) }}
                 </div>
               </div>
-              <div v-if="scheduleData[day.dateStr][row.label].length === 0" class="no-course">
+              <div v-if="!scheduleData[day.dateStr]?.[row.label] || scheduleData[day.dateStr][row.label].length === 0" class="no-course">
                 -
               </div>
             </div>

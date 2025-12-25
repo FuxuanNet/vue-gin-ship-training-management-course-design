@@ -1,29 +1,51 @@
 <script setup>
 import { computed, ref } from 'vue'
-import { useMockDataStore } from '../../stores/mockData'
-import { useUserStore } from '../../stores/user'
+import { getScores, getCourseTypeScores } from '../../api/employee'
+import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { onMounted, nextTick } from 'vue'
 
-const mockDataStore = useMockDataStore()
-const userStore = useUserStore()
+const loading = ref(true)
 const activeTab = ref('detail')
 const radarChartRef = ref(null)
+const myScores = ref([])
+const courseTypeScores = ref([])
 
 // 获取员工成绩
-const myScores = computed(() => {
-  return mockDataStore.getScoresByPersonId(userStore.userInfo.id)
-})
+const fetchScores = async () => {
+  loading.value = true
+  try {
+    const response = await getScores()
+    if (response.code === 200) {
+      myScores.value = response.data.scores || []
+    }
+  } catch (error) {
+    ElMessage.error('获取成绩失败：' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
 
 // 获取课程类型成绩
-const courseTypeScores = computed(() => {
-  return mockDataStore.getCourseTypeScores(userStore.userInfo.id)
-})
+const fetchCourseTypeScores = async () => {
+  try {
+    const response = await getCourseTypeScores()
+    if (response.code === 200) {
+      courseTypeScores.value = response.data.courseTypeScores || []
+      // 重新初始化雷达图
+      if (activeTab.value === 'analysis') {
+        initRadarChart()
+      }
+    }
+  } catch (error) {
+    ElMessage.error('获取类型成绩失败：' + (error.message || '未知错误'))
+  }
+}
 
 // 平均分
 const averageScore = computed(() => {
   if (myScores.value.length === 0) return 0
-  const sum = myScores.value.reduce((acc, item) => acc + parseFloat(item.weighted_score), 0)
+  const sum = myScores.value.reduce((acc, item) => acc + parseFloat(item.weightedScore), 0)
   return (sum / myScores.value.length).toFixed(2)
 })
 
@@ -31,15 +53,16 @@ const averageScore = computed(() => {
 const initRadarChart = () => {
   nextTick(() => {
     if (!radarChartRef.value) return
+    if (courseTypeScores.value.length === 0) return
     
     const chart = echarts.init(radarChartRef.value)
     
     const indicator = courseTypeScores.value.map(item => ({
-      name: item.course_class,
+      name: item.courseClass,
       max: 100
     }))
     
-    const data = courseTypeScores.value.map(item => parseFloat(item.avg_score))
+    const data = courseTypeScores.value.map(item => parseFloat(item.avgScore))
     
     const option = {
       title: {
@@ -111,13 +134,18 @@ const initRadarChart = () => {
 // 监听标签切换
 const handleTabChange = (tab) => {
   if (tab === 'analysis') {
-    initRadarChart()
+    if (courseTypeScores.value.length === 0) {
+      fetchCourseTypeScores()
+    } else {
+      initRadarChart()
+    }
   }
 }
 
 onMounted(() => {
+  fetchScores()
   if (activeTab.value === 'analysis') {
-    initRadarChart()
+    fetchCourseTypeScores()
   }
 })
 </script>
@@ -140,43 +168,48 @@ onMounted(() => {
       </div>
     </div>
     
-    <div class="content-wrapper">
+    <div class="content-wrapper" v-loading="loading">
       <el-tabs v-model="activeTab" @tab-change="handleTabChange">
         <el-tab-pane label="成绩明细" name="detail">
-          <el-table :data="myScores" border>
-            <el-table-column prop="item.class_date" label="上课日期" width="120" />
+          <el-empty v-if="myScores.length === 0" description="暂无成绩记录">
+            <el-button type="primary" @click="$router.push('/employee/evaluation')">去评价</el-button>
+          </el-empty>
+          <el-table v-else :data="myScores" border>
+            <el-table-column prop="classDate" label="上课日期" width="120" />
             <el-table-column label="课程名称" min-width="180">
               <template #default="{ row }">
-                {{ row.course?.course_name }}
+                {{ row.courseName }}
               </template>
             </el-table-column>
             <el-table-column label="课程类型" width="120">
               <template #default="{ row }">
-                <el-tag size="small">{{ row.course?.course_class }}</el-tag>
+                <el-tag size="small">{{ row.courseClass }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="self_score" label="自评分" width="100" align="center">
+            <el-table-column prop="selfScore" label="自评分" width="100" align="center">
               <template #default="{ row }">
-                <span class="score-value">{{ row.self_score }}</span>
+                <span class="score-value">{{ row.selfScore || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="teacher_score" label="讲师评分" width="100" align="center">
+            <el-table-column prop="teacherScore" label="讲师评分" width="100" align="center">
               <template #default="{ row }">
-                <span class="score-value">{{ row.teacher_score }}</span>
+                <span class="score-value">{{ row.teacherScore || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="weighted_score" label="综合得分" width="100" align="center">
+            <el-table-column prop="weightedScore" label="综合得分" width="100" align="center">
               <template #default="{ row }">
                 <el-tag 
-                  :type="row.weighted_score >= 90 ? 'success' : row.weighted_score >= 80 ? '' : row.weighted_score >= 60 ? 'warning' : 'danger'"
+                  v-if="row.weightedScore"
+                  :type="row.weightedScore >= 90 ? 'success' : row.weightedScore >= 80 ? '' : row.weightedScore >= 60 ? 'warning' : 'danger'"
                   effect="dark"
                 >
-                  {{ row.weighted_score }}
+                  {{ row.weightedScore.toFixed(1) }}
                 </el-tag>
+                <span v-else>-</span>
               </template>
             </el-table-column>
-            <el-table-column prop="self_comment" label="自评内容" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="teacher_comment" label="讲师评语" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="selfComment" label="自评内容" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="teacherComment" label="讲师评语" min-width="200" show-overflow-tooltip />
           </el-table>
         </el-tab-pane>
         
@@ -188,14 +221,15 @@ onMounted(() => {
             
             <div class="type-scores">
               <h3>各类型平均分</h3>
-              <el-row :gutter="20">
-                <el-col :span="12" v-for="item in courseTypeScores" :key="item.course_class">
+              <el-empty v-if="courseTypeScores.length === 0" description="暂无数据" />
+              <el-row v-else :gutter="20">
+                <el-col :span="12" v-for="item in courseTypeScores" :key="item.courseClass">
                   <el-card class="type-score-card" shadow="hover">
-                    <div class="type-name">{{ item.course_class }}</div>
-                    <div class="type-score">{{ item.avg_score }}分</div>
+                    <div class="type-name">{{ item.courseClass }}</div>
+                    <div class="type-score">{{ item.avgScore }}分</div>
                     <el-progress 
-                      :percentage="parseFloat(item.avg_score)" 
-                      :color="parseFloat(item.avg_score) >= 85 ? '#67C23A' : '#409EFF'"
+                      :percentage="parseFloat(item.avgScore)" 
+                      :color="parseFloat(item.avgScore) >= 85 ? '#67C23A' : '#409EFF'"
                     />
                   </el-card>
                 </el-col>
