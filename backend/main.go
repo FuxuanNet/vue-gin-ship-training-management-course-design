@@ -89,14 +89,8 @@ func setupRoutes(r *gin.Engine) {
 		// GET /api/teacher/pending-evaluations - 获取待评分学员列表
 		teacherGroup.GET("/pending-evaluations", teacher.GetPendingEvaluations)
 
-		// POST /api/teacher/submit-evaluation - 提交学员评分
-		teacherGroup.POST("/submit-evaluation", teacher.SubmitEvaluation)
-
-		// POST /api/teacher/batch-evaluation - 批量提交评分
-		teacherGroup.POST("/batch-evaluation", teacher.BatchEvaluation)
-
-		// PUT /api/teacher/score-ratio - 设置评分占比
-		teacherGroup.PUT("/score-ratio", teacher.UpdateScoreRatio)
+		// POST /api/teacher/submit-grading - 提交学员评分
+		teacherGroup.POST("/submit-grading", teacher.SubmitGrading)
 
 		// GET /api/teacher/course-statistics - 获取课程成绩统计
 		teacherGroup.GET("/course-statistics", teacher.GetCourseStatistics)

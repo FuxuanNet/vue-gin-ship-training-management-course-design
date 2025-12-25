@@ -1,20 +1,44 @@
 <script setup>
-import { computed } from 'vue'
-import { useMockDataStore } from '../../stores/mockData'
-import { useUserStore } from '../../stores/user'
+import { ref, computed, onMounted } from 'vue'
+import { getTodayCourses } from '../../api/teacher'
+import { ElMessage } from 'element-plus'
 import CourseCard from '../../components/CourseCard.vue'
 
-const mockDataStore = useMockDataStore()
-const userStore = useUserStore()
-
-const todayCourses = computed(() => {
-  return mockDataStore.getTodayCoursesForTeacher(userStore.userInfo.id)
+const loading = ref(true)
+const coursesData = ref({
+  date: '',
+  courseCount: 0,
+  courses: []
 })
 
 const currentDate = computed(() => {
-  const date = new Date()
+  if (!coursesData.value.date) {
+    const date = new Date()
+    const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
+    return date.toLocaleDateString('zh-CN', options)
+  }
+  
+  const date = new Date(coursesData.value.date)
   const options = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' }
   return date.toLocaleDateString('zh-CN', options)
+})
+
+const fetchTodayCourses = async () => {
+  loading.value = true
+  try {
+    const response = await getTodayCourses()
+    if (response.code === 200) {
+      coursesData.value = response.data
+    }
+  } catch (error) {
+    ElMessage.error('获取今日授课失败：' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
+
+onMounted(() => {
+  fetchTodayCourses()
 })
 </script>
 
@@ -25,13 +49,13 @@ const currentDate = computed(() => {
       <p class="date-info">{{ currentDate }}</p>
     </div>
     
-    <div class="content-wrapper">
-      <el-empty v-if="todayCourses.length === 0" description="今天没有授课安排">
+    <div class="content-wrapper" v-loading="loading">
+      <el-empty v-if="!loading && coursesData.courseCount === 0" description="今天没有授课安排">
         <el-button type="primary" @click="$router.push('/teacher/schedule')">查看授课表</el-button>
       </el-empty>
       
-      <el-row :gutter="20" v-else>
-        <el-col :xs="24" :sm="12" :lg="8" v-for="course in todayCourses" :key="course.item_id">
+      <el-row :gutter="20" v-else-if="!loading">
+        <el-col :xs="24" :sm="12" :lg="8" v-for="course in coursesData.courses" :key="course.itemId">
           <CourseCard :course="course" />
         </el-col>
       </el-row>

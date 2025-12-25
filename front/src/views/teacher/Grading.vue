@@ -1,34 +1,37 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { useMockDataStore } from '../../stores/mockData'
-import { useUserStore } from '../../stores/user'
+import { getPendingEvaluations, submitGrading } from '../../api/teacher'
 
-const mockDataStore = useMockDataStore()
-const userStore = useUserStore()
+const loading = ref(true)
+const courseItems = ref([])
+const totalCount = ref(0)
+const pendingCount = ref(0)
+const statusFilter = ref('pending') // pending 或 all
 
-// 获取讲师授课的课程安排
-const myCourseItems = computed(() => {
-  return mockDataStore.courseItems
-    .filter(item => {
-      const course = mockDataStore.courses.find(c => c.course_id === item.course_id)
-      return course && course.teacher_id === userStore.userInfo.id
+// 获取待评分学员列表
+const fetchPendingEvaluations = async () => {
+  loading.value = true
+  try {
+    const response = await getPendingEvaluations({
+      status: statusFilter.value
     })
-    .map(item => ({
-      ...item,
-      course: mockDataStore.courses.find(c => c.course_id === item.course_id),
-      students: mockDataStore.attendanceEvaluations
-        .filter(ae => ae.item_id === item.item_id)
-        .map(ae => ({
-          ...ae,
-          person: mockDataStore.persons.find(p => p.person_id === ae.person_id)
-        }))
-    }))
-})
+    if (response.code === 200) {
+      courseItems.value = response.data.courseItems || []
+      totalCount.value = response.data.totalCount || 0
+      pendingCount.value = response.data.pendingCount || 0
+    }
+  } catch (error) {
+    ElMessage.error('获取学员列表失败：' + (error.message || '未知错误'))
+  } finally {
+    loading.value = false
+  }
+}
 
 const selectedCourse = ref(null)
 const dialogVisible = ref(false)
 const currentStudent = ref(null)
+const submitting = ref(false)
 const gradingForm = ref({
   teacherScore: null,
   teacherComment: '',
@@ -41,16 +44,16 @@ const openGradingDialog = (courseItem, student) => {
   currentStudent.value = student
   
   gradingForm.value = {
-    teacherScore: student.teacher_score || null,
-    teacherComment: student.teacher_comment || '',
-    scoreRatio: student.score_ratio || 0.7
+    teacherScore: student.teacherScore || null,
+    teacherComment: student.teacherComment || '',
+    scoreRatio: student.scoreRatio || 0.7
   }
   
   dialogVisible.value = true
 }
 
 // 提交评分
-const submitGrading = () => {
+const handleSubmitGrading = async () => {
   if (gradingForm.value.teacherScore === null) {
     ElMessage.warning('请输入评分')
     return
@@ -61,29 +64,60 @@ const submitGrading = () => {
     return
   }
   
-  ElMessage.success('评分提交成功')
-  dialogVisible.value = false
-  
-  // 实际应该调用API保存评分
-  console.log('提交评分:', {
-    item_id: selectedCourse.value.item_id,
-    person_id: currentStudent.value.person_id,
-    ...gradingForm.value
-  })
+  submitting.value = true
+  try {
+    const response = await submitGrading({
+      itemId: selectedCourse.value.itemId,
+      personId: currentStudent.value.personId,
+      teacherScore: gradingForm.value.teacherScore,
+      teacherComment: gradingForm.value.teacherComment,
+      scoreRatio: gradingForm.value.scoreRatio
+    })
+    
+    if (response.code === 200) {
+      ElMessage.success('评分提交成功')
+      dialogVisible.value = false
+      // 重新获取列表
+      await fetchPendingEvaluations()
+    }
+  } catch (error) {
+    ElMessage.error('提交评分失败：' + (error.message || '未知错误'))
+  } finally {
+    submitting.value = false
+  }
 }
 
 // 使用AI评分
-const useAIGrading = () => {
+const useAIGrading = async () => {
   if (!gradingForm.value.teacherComment.trim()) {
     ElMessage.warning('请先填写评语，AI将根据评语生成分数')
     return
   }
   
-  // 模拟AI评分
-  const aiScore = Math.floor(Math.random() * 20) + 75
-  gradingForm.value.teacherScore = aiScore
-  ElMessage.success(`AI已根据评语生成评分：${aiScore}分`)
+  try {
+    // 调用后端AI评分接口
+    const response = await submitGrading({
+      itemId: selectedCourse.value.itemId,
+      personId: currentStudent.value.personId,
+      teacherScore: 0, // AI将根据评语生成
+      teacherComment: gradingForm.value.teacherComment,
+      scoreRatio: gradingForm.value.scoreRatio
+    })
+    
+    if (response.code === 200) {
+      gradingForm.value.teacherScore = response.data.teacherScore
+      ElMessage.success(`AI已根据评语生成评分：${response.data.teacherScore}分`)
+      dialogVisible.value = false
+      await fetchPendingEvaluations()
+    }
+  } catch (error) {
+    ElMessage.error('AI评分失败')
+  }
 }
+
+onMounted(() => {
+  fetchPendingEvaluations()
+})
 </script>
 
 <template>
@@ -93,42 +127,53 @@ const useAIGrading = () => {
       <p class="subtitle">对学员的学习表现进行评价和打分</p>
     </div>
     
-    <div class="content-wrapper">
+    <div class="content-wrapper" v-loading="loading">
+      <div class="filter-bar">
+        <el-radio-group v-model="statusFilter" @change="fetchPendingEvaluations" size="large">
+          <el-radio-button label="pending">待评分</el-radio-button>
+          <el-radio-button label="all">全部</el-radio-button>
+        </el-radio-group>
+        <div class="stats-info">
+          <el-tag type="warning" size="large">待评分：{{ pendingCount }}</el-tag>
+          <el-tag type="info" size="large">总数：{{ totalCount }}</el-tag>
+        </div>
+      </div>
+
       <el-collapse accordion>
         <el-collapse-item 
-          v-for="courseItem in myCourseItems" 
-          :key="courseItem.item_id"
-          :name="courseItem.item_id"
+          v-for="courseItem in courseItems" 
+          :key="courseItem.itemId"
+          :name="courseItem.itemId"
         >
           <template #title>
             <div class="course-title-item">
-              <el-tag type="primary">{{ courseItem.class_date }}</el-tag>
-              <span class="course-name">{{ courseItem.course?.course_name }}</span>
-              <el-tag size="small">{{ courseItem.students.length }}人</el-tag>
+              <el-tag type="primary">{{ courseItem.classDate }}</el-tag>
+              <span class="course-name">{{ courseItem.courseName }}</span>
+              <el-tag size="small">{{ courseItem.students?.length || 0 }}人</el-tag>
             </div>
           </template>
           
           <el-table :data="courseItem.students" border>
-            <el-table-column prop="person.name" label="学员姓名" width="120" />
-            <el-table-column prop="self_score" label="自评分" width="100" align="center">
+            <el-table-column prop="personName" label="学员姓名" width="120" />
+            <el-table-column prop="selfScore" label="自评分" width="100" align="center">
               <template #default="{ row }">
-                <span class="score-value">{{ row.self_score || '-' }}</span>
+                <span class="score-value">{{ row.selfScore || '-' }}</span>
               </template>
             </el-table-column>
-            <el-table-column prop="self_comment" label="自评内容" min-width="200" show-overflow-tooltip />
-            <el-table-column prop="teacher_score" label="我的评分" width="100" align="center">
+            <el-table-column prop="selfComment" label="自评内容" min-width="200" show-overflow-tooltip />
+            <el-table-column prop="teacherScore" label="我的评分" width="100" align="center">
               <template #default="{ row }">
-                <el-tag v-if="row.teacher_score" type="success">{{ row.teacher_score }}</el-tag>
+                <el-tag v-if="row.teacherScore" type="success">{{ row.teacherScore }}</el-tag>
                 <span v-else style="color: #909399;">未评分</span>
               </template>
             </el-table-column>
             <el-table-column label="综合得分" width="100" align="center">
               <template #default="{ row }">
                 <el-tag 
-                  v-if="row.teacher_score && row.self_score"
+                  v-if="row.teacherScore && row.selfScore"
                   effect="dark"
                 >
-                  {{ (row.self_score * (1 - row.score_ratio) + row.teacher_score * row.score_ratio).toFixed(1) }}
+                  {{ (row.selfScore * (1 - row.scoreRatio) + row.teacherScore * row.scoreRatio).toFixed(1) }}
                 </el-tag>
                 <span v-else style="color: #909399;">-</span>
               </template>
@@ -140,7 +185,7 @@ const useAIGrading = () => {
                   size="small"
                   @click="openGradingDialog(courseItem, row)"
                 >
-                  {{ row.teacher_score ? '修改' : '评分' }}
+                  {{ row.teacherScore ? '修改' : '评分' }}
                 </el-button>
               </template>
             </el-table-column>
@@ -148,7 +193,7 @@ const useAIGrading = () => {
         </el-collapse-item>
       </el-collapse>
       
-      <el-empty v-if="myCourseItems.length === 0" description="暂无课程需要评分" />
+      <el-empty v-if="courseItems.length === 0" description="暂无课程需要评分" />
     </div>
     
     <!-- 评分对话框 -->
@@ -159,15 +204,15 @@ const useAIGrading = () => {
     >
       <div class="student-info">
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="学员姓名">{{ currentStudent?.person?.name }}</el-descriptions-item>
-          <el-descriptions-item label="课程名称">{{ selectedCourse?.course?.course_name }}</el-descriptions-item>
-          <el-descriptions-item label="上课日期">{{ selectedCourse?.class_date }}</el-descriptions-item>
+          <el-descriptions-item label="学员姓名">{{ currentStudent?.personName }}</el-descriptions-item>
+          <el-descriptions-item label="课程名称">{{ selectedCourse?.courseName }}</el-descriptions-item>
+          <el-descriptions-item label="上课日期">{{ selectedCourse?.classDate }}</el-descriptions-item>
           <el-descriptions-item label="学员自评分">
-            <el-tag v-if="currentStudent?.self_score" type="primary">{{ currentStudent?.self_score }}</el-tag>
+            <el-tag v-if="currentStudent?.selfScore" type="primary">{{ currentStudent?.selfScore }}</el-tag>
             <span v-else style="color: #909399;">未自评</span>
           </el-descriptions-item>
           <el-descriptions-item label="学员自评内容" :span="2">
-            {{ currentStudent?.self_comment || '暂无' }}
+            {{ currentStudent?.selfComment || '暂无' }}
           </el-descriptions-item>
         </el-descriptions>
       </div>
@@ -219,16 +264,16 @@ const useAIGrading = () => {
           </div>
         </el-form-item>
         
-        <el-form-item label="预计综合得分" v-if="gradingForm.teacherScore && currentStudent?.self_score">
+        <el-form-item label="预计综合得分" v-if="gradingForm.teacherScore && currentStudent?.selfScore">
           <el-tag size="large" type="success" effect="dark">
-            {{ (currentStudent.self_score * (1 - gradingForm.scoreRatio) + gradingForm.teacherScore * gradingForm.scoreRatio).toFixed(1) }}分
+            {{ (currentStudent.selfScore * (1 - gradingForm.scoreRatio) + gradingForm.teacherScore * gradingForm.scoreRatio).toFixed(1) }}分
           </el-tag>
         </el-form-item>
       </el-form>
       
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="submitGrading">提交评分</el-button>
+        <el-button type="primary" @click="handleSubmitGrading" :loading="submitting">提交评分</el-button>
       </template>
     </el-dialog>
   </div>
@@ -261,6 +306,21 @@ const useAIGrading = () => {
   padding: 20px;
   border-radius: 8px;
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.filter-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding: 15px;
+  background-color: #f5f7fa;
+  border-radius: 6px;
+}
+
+.stats-info {
+  display: flex;
+  gap: 15px;
 }
 
 .course-title-item {
