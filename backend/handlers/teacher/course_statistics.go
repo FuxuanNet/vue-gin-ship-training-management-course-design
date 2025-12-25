@@ -179,7 +179,7 @@ func GetCourseStatistics(c *gin.Context) {
 	for _, eval := range evaluations {
 		if stat, exists := classStatMap[eval.ItemID]; exists {
 			stat.StudentCount++
-			if eval.TeacherScore > 0 {
+			if eval.TeacherComment != "" {
 				stat.EvaluatedCount++
 			}
 			weightedScore := eval.SelfScore*(1-eval.ScoreRatio) + eval.TeacherScore*eval.ScoreRatio

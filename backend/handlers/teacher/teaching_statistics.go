@@ -146,7 +146,7 @@ func GetTeachingStatistics(c *gin.Context) {
 		studentMap[eval.PersonID] = true
 		weightedScore := eval.SelfScore*(1-eval.ScoreRatio) + eval.TeacherScore*eval.ScoreRatio
 		totalScore += weightedScore
-		if eval.TeacherScore > 0 {
+		if eval.TeacherComment != "" {
 			evaluatedCount++
 		}
 	}
@@ -224,7 +224,7 @@ func GetTeachingStatistics(c *gin.Context) {
 		evaluatedCount := 0
 		var totalScore float64
 		for _, eval := range itemEvaluations {
-			if eval.TeacherScore > 0 {
+			if eval.TeacherComment != "" {
 				evaluatedCount++
 			}
 			weightedScore := eval.SelfScore*(1-eval.ScoreRatio) + eval.TeacherScore*eval.ScoreRatio

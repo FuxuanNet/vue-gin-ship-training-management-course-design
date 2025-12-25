@@ -10,11 +10,11 @@ import (
 
 // SubmitGradingRequest 提交评分请求
 type SubmitGradingRequest struct {
-	ItemID         int64   `json:"itemId" binding:"required"`
-	PersonID       int64   `json:"personId" binding:"required"`
-	TeacherScore   float64 `json:"teacherScore" binding:"required,min=0,max=100"`
-	TeacherComment string  `json:"teacherComment"`
-	ScoreRatio     float64 `json:"scoreRatio" binding:"required,min=0,max=1"`
+	ItemID         int64    `json:"itemId" binding:"required"`
+	PersonID       int64    `json:"personId" binding:"required"`
+	TeacherScore   *float64 `json:"teacherScore" binding:"required,min=0,max=100"`
+	TeacherComment string   `json:"teacherComment"`
+	ScoreRatio     float64  `json:"scoreRatio" binding:"required,min=0,max=1"`
 }
 
 // SubmitGradingResponse 提交评分响应
@@ -75,8 +75,8 @@ func SubmitGrading(c *gin.Context) {
 	}
 
 	// 如果讲师提供了评语但没有评分，使用AI生成评分
-	teacherScore := req.TeacherScore
-	if req.TeacherComment != "" && teacherScore == 0 {
+	teacherScore := *req.TeacherScore
+	if req.TeacherComment != "" && req.TeacherScore != nil && *req.TeacherScore == 0 {
 		// 获取课程名称
 		var course database.Course
 		database.DB.Where("course_id = ?", courseItem.CourseID).First(&course)

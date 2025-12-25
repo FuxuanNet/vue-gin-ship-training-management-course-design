@@ -29,11 +29,12 @@ func GetAnalytics(c *gin.Context) {
 		SELECT 
 			c.course_id AS course_id,
 			c.course_name AS course_name,
-			COALESCE(AVG(ae.weighted_score), 0) AS course_avg_score,
+			COALESCE(AVG(ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio), 0) AS course_avg_score,
 			COUNT(DISTINCT ae.person_id) AS student_count
 		FROM course c
 		LEFT JOIN plan_course_item pci ON c.course_id = pci.course_id
 		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id
+		WHERE ae.teacher_score != 0 OR ae.teacher_comment != ''
 		GROUP BY c.course_id, c.course_name
 		HAVING COUNT(DISTINCT ae.person_id) > 0
 		ORDER BY course_avg_score DESC
@@ -51,12 +52,13 @@ func GetAnalytics(c *gin.Context) {
 		SELECT 
 			tp.plan_id AS plan_id,
 			tp.plan_name AS plan_name,
-			COALESCE(AVG(ae.weighted_score), 0) AS plan_avg_score
+			COALESCE(AVG(ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio), 0) AS plan_avg_score
 		FROM training_plan tp
 		LEFT JOIN plan_course_item pci ON tp.plan_id = pci.plan_id
 		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id
+		WHERE ae.teacher_score != 0 OR ae.teacher_comment != ''
 		GROUP BY tp.plan_id, tp.plan_name
-		HAVING COUNT(ae.weighted_score) > 0
+		HAVING COUNT(DISTINCT ae.person_id) > 0
 		ORDER BY plan_avg_score DESC
 		LIMIT ?
 	`, topN).Scan(&planRankings)
@@ -72,10 +74,10 @@ func GetAnalytics(c *gin.Context) {
 		SELECT 
 			c.course_class AS course_class,
 			COUNT(DISTINCT c.course_id) AS course_count,
-			COALESCE(AVG(ae.weighted_score), 0) AS avg_score
+			COALESCE(AVG(ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio), 0) AS avg_score
 		FROM course c
 		LEFT JOIN plan_course_item pci ON c.course_id = pci.course_id
-		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id
+		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id AND (ae.teacher_score != 0 OR ae.teacher_comment != '')
 		GROUP BY c.course_class
 		ORDER BY course_count DESC
 	`).Scan(&courseClassDistribution)
@@ -104,11 +106,11 @@ func GetAnalytics(c *gin.Context) {
 		SELECT 
 			p.person_id AS person_id,
 			p.name AS person_name,
-			COALESCE(AVG(ae.weighted_score), 0) AS avg_score,
+			COALESCE(AVG(ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio), 0) AS avg_score,
 			COUNT(DISTINCT ae.item_id) AS course_count
 		FROM person p
 		INNER JOIN attendance_evaluation ae ON p.person_id = ae.person_id
-		WHERE p.role = '员工'
+		WHERE p.role = '员工' AND (ae.teacher_score != 0 OR ae.teacher_comment != '')
 		GROUP BY p.person_id, p.name
 		ORDER BY avg_score DESC
 		LIMIT ?
@@ -128,12 +130,12 @@ func GetAnalytics(c *gin.Context) {
 			p.person_id AS teacher_id,
 			p.name AS teacher_name,
 			COUNT(DISTINCT pci.item_id) AS course_count,
-			COALESCE(AVG(ae.weighted_score), 0) AS avg_score,
+			COALESCE(AVG(ae.self_score * (1 - ae.score_ratio) + ae.teacher_score * ae.score_ratio), 0) AS avg_score,
 			COUNT(DISTINCT ae.person_id) AS student_count
 		FROM person p
 		INNER JOIN course c ON p.person_id = c.teacher_id
 		LEFT JOIN plan_course_item pci ON c.course_id = pci.course_id
-		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id
+		LEFT JOIN attendance_evaluation ae ON pci.item_id = ae.item_id AND (ae.teacher_score != 0 OR ae.teacher_comment != '')
 		WHERE p.role = '讲师'
 		GROUP BY p.person_id, p.name
 		ORDER BY course_count DESC

@@ -159,7 +159,7 @@ func GetCourseTypeScores(c *gin.Context) {
 
 	type TypeStat struct {
 		CourseClass string  `json:"courseClass"`
-		AvgScore    float64 `json:"avgWeightedScore"`
+		AvgScore    float64 `json:"avgScore"`
 		Count       int     `json:"courseCount"`
 		MaxScore    float64 `json:"maxScore"`
 		MinScore    float64 `json:"minScore"`
@@ -183,7 +183,7 @@ func GetCourseTypeScores(c *gin.Context) {
 		Joins("JOIN plan_course_item ON attendance_evaluation.item_id = plan_course_item.item_id").
 		Joins("JOIN course ON plan_course_item.course_id = course.course_id").
 		Where("attendance_evaluation.person_id = ?", personID).
-		Where("attendance_evaluation.teacher_comment != ''"). // 只统计已完成评分的
+		Where("(attendance_evaluation.teacher_score != 0 OR attendance_evaluation.teacher_comment != '')"). // 只统计已完成评分的
 		Group("course.course_class").
 		Scan(&stats).Error
 
@@ -238,7 +238,7 @@ func GetLearningProgress(c *gin.Context) {
 
 	var completedCourses int64
 	database.DB.Table("attendance_evaluation").
-		Where("person_id = ? AND teacher_comment != ''", personID).
+		Where("person_id = ? AND teacher_comment IS NOT NULL AND teacher_comment != ''", personID).
 		Count(&completedCourses)
 
 	var evaluatedCourses int64
