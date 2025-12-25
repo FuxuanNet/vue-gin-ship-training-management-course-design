@@ -177,3 +177,112 @@ export function deleteCourse(courseId) {
     method: 'delete'
   })
 }
+
+/**
+ * 获取课程安排列表
+ * @param {Object} params - 查询参数
+ * @param {number} params.page - 页码，默认1
+ * @param {number} params.pageSize - 每页数量，默认20
+ * @param {number} params.planId - 按培训计划筛选
+ * @param {number} params.courseId - 按课程筛选
+ * @param {string} params.startDate - 开始日期筛选（YYYY-MM-DD）
+ * @param {string} params.endDate - 结束日期筛选（YYYY-MM-DD）
+ * @param {string} params.sortBy - 排序字段（默认class_date）
+ * @param {string} params.sortOrder - 排序方向：asc/desc（默认asc）
+ * @returns {Promise} 课程安排列表数据
+ */
+export function getCourseItemsList(params) {
+  return request({
+    url: '/planner/course-items',
+    method: 'get',
+    params
+  })
+}
+
+/**
+ * 创建课程安排
+ * @param {Object} data - 课程安排数据
+ * @param {number} data.planId - 培训计划ID
+ * @param {number} data.courseId - 课程ID
+ * @param {string} data.classDate - 上课日期（YYYY-MM-DD）
+ * @param {string} data.classBeginTime - 上课开始时间（HH:mm:ss）
+ * @param {string} data.classEndTime - 上课结束时间（HH:mm:ss）
+ * @param {string} data.location - 上课地点
+ * @returns {Promise} 创建结果
+ */
+export function createCourseItem(data) {
+  return request({
+    url: '/planner/course-items',
+    method: 'post',
+    data
+  })
+}
+
+/**
+ * 修改课程安排
+ * @param {number} itemId - 课程安排ID
+ * @param {Object} data - 要修改的数据
+ * @param {string} data.classDate - 上课日期（可选）
+ * @param {string} data.classBeginTime - 上课开始时间（可选）
+ * @param {string} data.classEndTime - 上课结束时间（可选）
+ * @param {string} data.location - 上课地点（可选）
+ * @returns {Promise} 修改结果
+ */
+export function updateCourseItem(itemId, data) {
+  return request({
+    url: `/planner/course-items/${itemId}`,
+    method: 'put',
+    data
+  })
+}
+
+/**
+ * 删除课程安排
+ * @param {number} itemId - 课程安排ID
+ * @param {boolean} force - 是否强制删除（删除关联的评价记录）
+ * @returns {Promise} 删除结果
+ */
+export function deleteCourseItem(itemId, force = false) {
+  return request({
+    url: `/planner/course-items/${itemId}`,
+    method: 'delete',
+    params: { force }
+  })
+}
+
+/**
+ * 获取平台数据分析
+ * @param {number} topN - 排名数量（默认10）
+ * @returns {Promise} 数据分析结果
+ */
+export function getAnalytics(topN = 10) {
+  return request({
+    url: '/planner/analytics',
+    method: 'get',
+    params: { topN }
+  })
+}
+
+/**
+ * 获取员工成绩详情
+ * @param {number} employeeId - 员工ID
+ * @returns {Promise} 员工成绩详情数据
+ */
+export function getEmployeeScores(employeeId) {
+  return request({
+    url: `/planner/employees/${employeeId}/scores`,
+    method: 'get'
+  })
+}
+
+/**
+ * 获取课程评价详情
+ * @param {number} courseId - 课程ID
+ * @returns {Promise} 课程评价详情数据
+ */
+export function getCourseEvaluations(courseId) {
+  return request({
+    url: `/planner/courses/${courseId}/evaluations`,
+    method: 'get'
+  })
+}

@@ -164,6 +164,27 @@ func setupRoutes(r *gin.Engine) {
 
 		// DELETE /api/planner/courses/:courseId - 删除课程
 		plannerGroup.DELETE("/courses/:courseId", planner.DeleteCourse)
+
+		// GET /api/planner/course-items - 获取课程安排列表
+		plannerGroup.GET("/course-items", planner.GetCourseItemsList)
+
+		// POST /api/planner/course-items - 创建课程安排
+		plannerGroup.POST("/course-items", planner.CreateCourseItem)
+
+		// PUT /api/planner/course-items/:itemId - 修改课程安排
+		plannerGroup.PUT("/course-items/:itemId", planner.UpdateCourseItem)
+
+		// DELETE /api/planner/course-items/:itemId - 删除课程安排
+		plannerGroup.DELETE("/course-items/:itemId", planner.DeleteCourseItem)
+
+		// GET /api/planner/analytics - 获取平台数据分析
+		plannerGroup.GET("/analytics", planner.GetAnalytics)
+
+		// GET /api/planner/employees/:employeeId/scores - 获取员工成绩详情
+		plannerGroup.GET("/employees/:employeeId/scores", planner.GetEmployeeScores)
+
+		// GET /api/planner/courses/:courseId/evaluations - 获取课程评价详情
+		plannerGroup.GET("/courses/:courseId/evaluations", planner.GetCourseEvaluations)
 	}
 
 	// 健康检查接口
