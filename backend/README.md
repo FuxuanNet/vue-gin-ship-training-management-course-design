@@ -43,6 +43,8 @@ docker-compose up -d
 ### 2. 安装依赖
 
 ```bash
+go mod init backend
+
 go mod tidy
 ```
 

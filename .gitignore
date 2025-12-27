@@ -13,3 +13,5 @@ go.mod
 
 # Logs
 *.log
+
+*.zip
